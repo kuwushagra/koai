@@ -1,4 +1,4 @@
-
+import { getVersion } from "@tauri-apps/api/app";
 import React, {
   useCallback,
   useEffect,
@@ -155,6 +155,7 @@ const normalizeError = (error: unknown): string => {
 };
 
 function App() {
+  const [appVersion, setAppVersion] = useState("Loading...");
   const [themeName, setThemeName] = useState<ThemeName>(() => {
     const saved = localStorage.getItem("koai-theme");
 
@@ -298,6 +299,12 @@ function App() {
         clearTimeout(toastTimeoutRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    getVersion()
+      .then((version) => setAppVersion(version))
+      .catch(() => setAppVersion("Unknown"));
   }, []);
 
   useEffect(() => {
@@ -2228,7 +2235,7 @@ function App() {
                 <div className="settings-information">
                   <div>
                     <span>Version</span>
-                    <strong>0.1.0</strong>
+                    <strong>{appVersion}</strong>
                   </div>
 
                   <div>
