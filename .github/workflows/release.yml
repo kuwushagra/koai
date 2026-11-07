@@ -83,6 +83,6 @@ jobs:
         with:
           tagName: v${{ steps.version.outputs.app_version }}
           releaseName: "koai ${{ steps.version.outputs.app_version }}"
-          releaseBody: "See the release notes for changes."
+          releaseBody: "Automated release. See changelog on website."
           releaseDraft: false
           prerelease: false
