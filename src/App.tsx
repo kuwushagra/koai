@@ -1,4 +1,11 @@
 import { getVersion } from "@tauri-apps/api/app";
+
+import {
+  open,
+  save,
+  confirm
+} from "@tauri-apps/plugin-dialog";
+
 import React, {
   useCallback,
   useEffect,
@@ -39,7 +46,6 @@ import {
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
 import TerminalPanel from "./components/Terminal/TerminalPanel";
 import CodeEditor from "./components/Editor/CodeEditor";
 import { themes } from "./themes/themes.ts";
@@ -1162,54 +1168,84 @@ function App() {
     void loadAISettings();
   }, [loadAISettings]);
 
-  const checkForUpdates = async () => {
-    setActiveMenu(null);
 
-    try {
-      showToast("Checking for updates...");
+  
+const checkForUpdates = async () => {
+  setActiveMenu(null);
 
-      const update = await check();
+  let update: Awaited<ReturnType<typeof check>> = null;
 
-      if (!update) {
-        showToast("koai is already up to date!");
-        return;
-      }
+  try {
+    showToast("Checking for updates...");
 
-      const shouldInstall = window.confirm(
-        `A new version of koai is available!\n\n` +
-        `Current version: ${update.currentVersion}\n` +
-        `New version: ${update.version}\n\n` +
-        `Release notes:\n${update.body || "No release notes available."}\n\n` +
-        `Would you like to download and install it?`
-      );
+    update = await check();
 
-      if (!shouldInstall) {
-        showToast("Update cancelled");
-        return;
-      }
-
-      showToast(`Downloading koai ${update.version}...`);
-
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            showToast("Update download started...");
-            break;
-
-          case "Finished":
-            showToast("Download complete. Installing...");
-            break;
-        }
-      });
-
-      showToast("Update installed. Restarting koai...");
-
-      await relaunch();
-    } catch (error) {
-      console.error("Updater error:", error);
-      showToast(`Update failed: ${normalizeError(error)}`);
+    if (!update) {
+      showToast("koai is already up to date!");
+      return;
     }
-  };
+
+    // Native Tauri confirmation dialog.
+    const confirmed = await confirm(
+      `A new version of koai is available!\n\n` +
+      `Current version: ${update.currentVersion}\n` +
+      `New version: ${update.version}\n\n` +
+      `Release notes:\n${update.body || "No release notes available."}\n\n` +
+      `Would you like to download and install it?`,
+      {
+        title: "koai Update Available",
+        kind: "info",
+        okLabel: "Download & Install",
+        cancelLabel: "Cancel"
+      }
+    );
+
+    // NEVER download if the user cancels.
+    if (!confirmed) {
+      await update.close();
+      showToast("Update cancelled");
+      return;
+    }
+
+    showToast(`Downloading koai ${update.version}...`);
+
+    await update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          showToast("Update download started...");
+          break;
+
+        case "Progress":
+          console.log(
+            "Downloaded chunk:",
+            event.data.chunkLength
+          );
+          break;
+
+        case "Finished":
+          showToast("Download complete. Installing...");
+          break;
+      }
+    });
+
+    showToast("Update installed. Restarting koai...");
+
+    await relaunch();
+
+  } catch (error) {
+    console.error("Updater error:", error);
+
+    if (update) {
+      try {
+        await update.close();
+      } catch {
+        // Update resource may already be released.
+      }
+    }
+
+    showToast(`Update failed: ${normalizeError(error)}`);
+  }
+};
 
   const changeTheme = (name: ThemeName) => {
     setThemeName(name);
