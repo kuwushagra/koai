@@ -1183,7 +1183,10 @@ function App() {
         `Would you like to download and install it?`
       );
 
-      if (!shouldInstall) return;
+      if (!shouldInstall) {
+        showToast("Update cancelled");
+        return;
+      }
 
       showToast(`Downloading koai ${update.version}...`);
 
@@ -1191,10 +1194,6 @@ function App() {
         switch (event.event) {
           case "Started":
             showToast("Update download started...");
-            break;
-
-          case "Progress":
-            // Download progress event.
             break;
 
           case "Finished":
@@ -1206,13 +1205,9 @@ function App() {
       showToast("Update installed. Restarting koai...");
 
       await relaunch();
-
     } catch (error) {
       console.error("Updater error:", error);
-
-      showToast(
-        `Update failed: ${normalizeError(error)}`
-      );
+      showToast(`Update failed: ${normalizeError(error)}`);
     }
   };
 
