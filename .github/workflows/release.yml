@@ -2,6 +2,7 @@
 name: koai Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
