@@ -22,6 +22,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate application version
+        id: version
+        shell: bash
+        run: |
+          COMMIT_NUMBER=$(git rev-list --count HEAD)
+          APP_VERSION="0.1.1-${COMMIT_NUMBER}"
+
+          echo "Application version: $APP_VERSION"
+
+          node -e '
+            const fs = require("fs");
+            const path = "src-tauri/tauri.conf.json";
+            const config = JSON.parse(fs.readFileSync(path, "utf8"));
+            config.version = process.env.APP_VERSION;
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+          '
+        env:
+          APP_VERSION: 0.1.1-${{ github.run_number }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -54,8 +75,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "koai ${{ github.ref_name }}"
+          tagName: v${{ steps.version.outputs.app_version }}
+          releaseName: "koai ${{ steps.version.outputs.app_version }}"
           releaseBody: "See the release notes for changes."
           releaseDraft: false
           prerelease: false
