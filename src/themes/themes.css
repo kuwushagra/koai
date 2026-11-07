@@ -1,0 +1,163 @@
+/* DARK THEMES */
+
+.theme-preview[data-theme-preview="dark"] {
+  background: #181818;
+}
+
+.theme-preview[data-theme-preview="dark"] span {
+  background: #a78bfa;
+}
+
+.theme-preview[data-theme-preview="amoled"] {
+  background: #000000;
+}
+
+.theme-preview[data-theme-preview="amoled"] span {
+  background: #a78bfa;
+}
+
+.theme-preview[data-theme-preview="gruvbox"] {
+  background: #282828;
+}
+
+.theme-preview[data-theme-preview="gruvbox"] span {
+  background: #fabd2f;
+}
+
+.theme-preview[data-theme-preview="nord"] {
+  background: #2e3440;
+}
+
+.theme-preview[data-theme-preview="nord"] span {
+  background: #88c0d0;
+}
+
+.theme-preview[data-theme-preview="dracula"] {
+  background: #282a36;
+}
+
+.theme-preview[data-theme-preview="dracula"] span {
+  background: #bd93f9;
+}
+
+.theme-preview[data-theme-preview="tokyo-night"] {
+  background: #1a1b26;
+}
+
+.theme-preview[data-theme-preview="tokyo-night"] span {
+  background: #7aa2f7;
+}
+
+.theme-preview[data-theme-preview="one-dark"] {
+  background: #282c34;
+}
+
+.theme-preview[data-theme-preview="one-dark"] span {
+  background: #61afef;
+}
+
+.theme-preview[data-theme-preview="catppuccin"] {
+  background: #1e1e2e;
+}
+
+.theme-preview[data-theme-preview="catppuccin"] span {
+  background: #cba6f7;
+}
+
+.theme-preview[data-theme-preview="rose-pine"] {
+  background: #191724;
+}
+
+.theme-preview[data-theme-preview="rose-pine"] span {
+  background: #ebbcba;
+}
+
+.theme-preview[data-theme-preview="monokai"] {
+  background: #272822;
+}
+
+.theme-preview[data-theme-preview="monokai"] span {
+  background: #a6e22e;
+}
+
+/* LIGHT THEMES */
+
+.theme-preview[data-theme-preview="light"] {
+  background: #f5f5f5;
+}
+
+.theme-preview[data-theme-preview="light"] span {
+  background: #7355c5;
+}
+
+.theme-preview[data-theme-preview="github-light"] {
+  background: #ffffff;
+}
+
+.theme-preview[data-theme-preview="github-light"] span {
+  background: #0969da;
+}
+
+.theme-preview[data-theme-preview="solarized-light"] {
+  background: #fdf6e3;
+}
+
+.theme-preview[data-theme-preview="solarized-light"] span {
+  background: #268bd2;
+}
+
+.theme-preview[data-theme-preview="gruvbox-light"] {
+  background: #fbf1c7;
+}
+
+.theme-preview[data-theme-preview="gruvbox-light"] span {
+  background: #b57614;
+}
+
+.theme-preview[data-theme-preview="catppuccin-latte"] {
+  background: #eff1f5;
+}
+
+.theme-preview[data-theme-preview="catppuccin-latte"] span {
+  background: #8839ef;
+}
+
+.theme-preview[data-theme-preview="rose-pine-dawn"] {
+  background: #faf4ed;
+}
+
+.theme-preview[data-theme-preview="rose-pine-dawn"] span {
+  background: #d7827e;
+}
+
+.theme-preview[data-theme-preview="everforest-light"] {
+  background: #fdf6e3;
+}
+
+.theme-preview[data-theme-preview="everforest-light"] span {
+  background: #8da101;
+}
+
+.theme-preview[data-theme-preview="quiet-light"] {
+  background: #f5f5f5;
+}
+
+.theme-preview[data-theme-preview="quiet-light"] span {
+  background: #4876d6;
+}
+
+.theme-preview[data-theme-preview="soft-peach"] {
+  background: #fff1e6;
+}
+
+.theme-preview[data-theme-preview="soft-peach"] span {
+  background: #e58b64;
+}
+
+.theme-preview[data-theme-preview="lavender"] {
+  background: #f4f0ff;
+}
+
+.theme-preview[data-theme-preview="lavender"] span {
+  background: #9475d7;
+}
