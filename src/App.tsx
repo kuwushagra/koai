@@ -142,8 +142,6 @@ const getLanguage = (name: string): string => {
   };
 
   return languages[extension ?? ""] ?? "plaintext";
-
-  return languages[extension ?? ""] ?? "plaintext";
 };
 
 const getFileName = (path: string): string => {
@@ -175,13 +173,10 @@ function App() {
   );
 
   const [aiApiKey, setAiApiKey] = useState("");
-  const [aiModel, setAiModel] = useState(
-    () => localStorage.getItem("koai-model") || ""
-  );
 
-  const [customApiUrl, setCustomApiUrl] = useState(
-    () => localStorage.getItem("koai-custom-url") || ""
-  );
+  const [aiModel, setAiModel] = useState("");
+
+  const [customApiUrl, setCustomApiUrl] = useState("");
 
   const [assistantLoading, setAssistantLoading] = useState(false);
 
@@ -318,18 +313,6 @@ function App() {
   }, [themeName]);
 
   useEffect(() => {
-    localStorage.setItem("koai-provider", aiProvider);
-  }, [aiProvider]);
-
-  useEffect(() => {
-    localStorage.setItem("koai-model", aiModel);
-  }, [aiModel]);
-
-  useEffect(() => {
-    localStorage.setItem("koai-custom-url", customApiUrl);
-  }, [customApiUrl]);
-
-  useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
 
@@ -347,6 +330,32 @@ function App() {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, []);
+
+  const loadAISettings = useCallback(async () => {
+    try {
+      const settings = await invoke<{
+        provider: AIProvider;
+        model: string;
+        customUrl: string;
+        apiKey: string;
+      } | null>("get_ai_settings");
+
+      if (!settings) return;
+
+      setAiProvider(settings.provider);
+      setAiModel(settings.model || "");
+      setCustomApiUrl(settings.customUrl || "");
+      setAiApiKey(settings.apiKey || "");
+
+    } catch (error) {
+      console.error("Could not load AI settings:", error);
+      showToast("Could not load saved AI settings");
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    void loadAISettings();
+  }, [loadAISettings]);
 
   const toggleMenu = (menu: MenuName) => {
     setActiveMenu((previous) =>
@@ -821,8 +830,43 @@ function App() {
         showToast(normalizeError(error));
       }
     },
-    [activeFile, showToast]
+    [activeFile, showToast, loadDirectory]
   );
+
+  const applyAIResponse = useCallback(() => {
+    if (!currentFile) {
+      showToast("No file is currently open");
+      return;
+    }
+
+    const lastAssistantMessage = [...assistantMessages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+
+    if (!lastAssistantMessage) {
+      showToast("No AI response available");
+      return;
+    }
+
+    let content = lastAssistantMessage.content;
+
+    const codeBlockMatch = content.match(
+      /```(?:[\w+-]+)?\s*\n([\s\S]*?)```/
+    );
+
+    if (codeBlockMatch) {
+      content = codeBlockMatch[1];
+    }
+
+    updateFileContent(currentFile.path, content.trim());
+
+    showToast("AI response applied to editor");
+  }, [
+    currentFile,
+    assistantMessages,
+    updateFileContent,
+    showToast,
+  ]);
 
   const closeFile = useCallback(
     async (path: string, saveBeforeClose: boolean) => {
@@ -1111,6 +1155,7 @@ function App() {
     }
   };
 
+
   const saveAISettings = async () => {
     if (!aiProvider) {
       showToast("Select an AI provider");
@@ -1125,7 +1170,7 @@ function App() {
     try {
       await invoke("save_ai_settings", {
         provider: aiProvider,
-        apiKey: aiApiKey,
+        apiKey: aiApiKey.trim(),
         model: aiModel || null,
         customUrl: customApiUrl || null,
       });
@@ -1138,114 +1183,81 @@ function App() {
     }
   };
 
-  const loadAISettings = useCallback(async () => {
+
+
+  const checkForUpdates = async () => {
+    setActiveMenu(null);
+
+    let update: Awaited<ReturnType<typeof check>> = null;
+
     try {
-      const settings = await invoke<{
-        provider: AIProvider;
-        model: string;
-        customUrl: string;
-        apiKey: string;
-      } | null>("get_ai_settings");
+      showToast("Checking for updates...");
 
-      if (settings) {
-        setAiProvider(settings.provider);
-        setAiModel(settings.model || "");
-        setCustomApiUrl(settings.customUrl || "");
-        setAiApiKey(settings.apiKey || "");
+      update = await check();
+
+      if (!update) {
+        showToast("koai is already up to date!");
+        return;
       }
 
-      if (settings) {
-        setAiProvider(settings.provider);
-        setAiModel(settings.model || "");
-        setCustomApiUrl(settings.customUrl || "");
-      }
-    } catch {
-      // Secure settings storage may not be configured yet.
-    }
-  }, []);
+      const confirmed = await confirm(
+        `A new version of koai is available!\n\n` +
+        `Current version: ${update.currentVersion}\n` +
+        `New version: ${update.version}\n\n` +
+        `Release notes:\n${update.body || "No release notes available."}\n\n` +
+        `Would you like to download and install it?`,
+        {
+          title: "koai Update Available",
+          kind: "info",
+          okLabel: "Download & Install",
+          cancelLabel: "Cancel"
+        }
+      );
 
-  useEffect(() => {
-    void loadAISettings();
-  }, [loadAISettings]);
-
-
-  
-const checkForUpdates = async () => {
-  setActiveMenu(null);
-
-  let update: Awaited<ReturnType<typeof check>> = null;
-
-  try {
-    showToast("Checking for updates...");
-
-    update = await check();
-
-    if (!update) {
-      showToast("koai is already up to date!");
-      return;
-    }
-
-    // Native Tauri confirmation dialog.
-    const confirmed = await confirm(
-      `A new version of koai is available!\n\n` +
-      `Current version: ${update.currentVersion}\n` +
-      `New version: ${update.version}\n\n` +
-      `Release notes:\n${update.body || "No release notes available."}\n\n` +
-      `Would you like to download and install it?`,
-      {
-        title: "koai Update Available",
-        kind: "info",
-        okLabel: "Download & Install",
-        cancelLabel: "Cancel"
-      }
-    );
-
-    // NEVER download if the user cancels.
-    if (!confirmed) {
-      await update.close();
-      showToast("Update cancelled");
-      return;
-    }
-
-    showToast(`Downloading koai ${update.version}...`);
-
-    await update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case "Started":
-          showToast("Update download started...");
-          break;
-
-        case "Progress":
-          console.log(
-            "Downloaded chunk:",
-            event.data.chunkLength
-          );
-          break;
-
-        case "Finished":
-          showToast("Download complete. Installing...");
-          break;
-      }
-    });
-
-    showToast("Update installed. Restarting koai...");
-
-    await relaunch();
-
-  } catch (error) {
-    console.error("Updater error:", error);
-
-    if (update) {
-      try {
+      if (!confirmed) {
         await update.close();
-      } catch {
-        // Update resource may already be released.
+        showToast("Update cancelled");
+        return;
       }
-    }
 
-    showToast(`Update failed: ${normalizeError(error)}`);
-  }
-};
+      showToast(`Downloading koai ${update.version}...`);
+
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            showToast("Update download started...");
+            break;
+
+          case "Progress":
+            console.log(
+              "Downloaded chunk:",
+              event.data.chunkLength
+            );
+            break;
+
+          case "Finished":
+            showToast("Download complete. Installing...");
+            break;
+        }
+      });
+
+      showToast("Update installed. Restarting koai...");
+
+      await relaunch();
+
+    } catch (error) {
+      console.error("Updater error:", error);
+
+      if (update) {
+        try {
+          await update.close();
+        } catch {
+        }
+      }
+
+      showToast(`Update failed: ${normalizeError(error)}`);
+    }
+  };
 
   const changeTheme = (name: ThemeName) => {
     setThemeName(name);
@@ -1868,6 +1880,38 @@ const checkForUpdates = async () => {
               >
                 Improve code
               </button>
+
+              <button
+                onClick={() =>
+                  setAssistantInput(
+                    "Generate a complete implementation for my requirements."
+                  )
+                }
+              >
+                Generate code
+              </button>
+
+              <button
+                onClick={() =>
+                  setAssistantInput(
+                    "Review my current file and provide a corrected version."
+                  )
+                }
+                disabled={!currentFile}
+              >
+                Fix my code
+              </button>
+
+              <button
+                onClick={() =>
+                  setAssistantInput(
+                    "Refactor my current code and improve its structure."
+                  )
+                }
+                disabled={!currentFile}
+              >
+                Refactor code
+              </button>
             </div>
           </div>
         ) : (
@@ -1891,6 +1935,18 @@ const checkForUpdates = async () => {
             <p>Thinking...</p>
           </div>
         )}
+        {assistantMessages.some(
+  (message) => message.role === "assistant"
+) && (
+  <div className="assistant-suggestions">
+    <button
+      onClick={() => void applyAIResponse()}
+      disabled={!currentFile || assistantLoading}
+    >
+      Apply to Editor
+    </button>
+  </div>
+)}
       </div>
 
       <div className="assistant-input">
@@ -2317,6 +2373,38 @@ const checkForUpdates = async () => {
                   <option value="google">Google</option>
                   <option value="custom">Custom API</option>
                 </select>
+
+                <label className="settings-label">
+                  Model
+                </label>
+
+                <input
+                  className="settings-input"
+                  type="text"
+                  placeholder="gpt-5.5 / gemini-3.5-flash / claude-sonnet-4-5"
+                  value={aiModel}
+                  onChange={(event) =>
+                    setAiModel(event.target.value)
+                  }
+                />
+
+                {aiProvider === "custom" && (
+                  <>
+                    <label className="settings-label">
+                      API Endpoint
+                    </label>
+
+                    <input
+                      className="settings-input"
+                      type="text"
+                      placeholder="https://your-api.com/v1"
+                      value={customApiUrl}
+                      onChange={(event) =>
+                        setCustomApiUrl(event.target.value)
+                      }
+                    />
+                  </>
+                )}
 
                 <label className="settings-label">
                   API Key

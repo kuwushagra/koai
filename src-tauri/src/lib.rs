@@ -1,6 +1,7 @@
 mod commands;
 mod terminal;
 use commands::filesystem::*;
+mod ai;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -9,6 +10,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            ai::ai_chat,
+            ai::save_ai_settings,
+            ai::get_ai_settings,
             read_file,
             write_file,
             list_directory,
