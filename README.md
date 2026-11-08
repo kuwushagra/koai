@@ -18,7 +18,7 @@ This Code Editor was made as a college project and can perform powerful operatio
 This application is presently usable and buildable on Windows, Linux & macOS.
 
 ### Running
-The builds for your specific OS and architecture can be downloaded from the [Releases Page](https://github.com/kuwushagra/koai/releases/latest)
+The builds for your specific OS and architecture can be downloaded from the [koai Website](https://koaicode.netlify.app) or [Releases Page](https://github.com/kuwushagra/koai/releases/latest).
 
 ### Updating
 koai features inbuilt one-click update functionality, just click on the `koai` button in the top navigation panel and `Check for updates` button should appear under the `About` section.
