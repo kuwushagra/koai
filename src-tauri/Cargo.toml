@@ -1,9 +1,9 @@
 [package]
 name = "koai"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-edition = "2024"
+version = "1.0.0"
+description = "Minimalist code editor"
+authors = ["kuwushagra"]
+edition = "2026"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
