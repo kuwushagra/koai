@@ -25,14 +25,14 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    compileSdk = 37
+    compileSdk = 35
     namespace = "com.kuwushagra.koai"
 
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.kuwushagra.koai"
         minSdk = 24
-        targetSdk = 37
+        targetSdk = 35
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
