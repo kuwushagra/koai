@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           COMMIT_NUMBER=$(git rev-list --count HEAD)
-          APP_VERSION="1.1.${COMMIT_NUMBER}"
+          APP_VERSION="1.2.${COMMIT_NUMBER}"
 
           echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
@@ -209,17 +209,37 @@ jobs:
       - name: Initialize Tauri Android project
         run: npm run tauri android init
 
-      - name: Build Android APK
-        run: npm run tauri android build -- --apk
+      - name: Build Android Debug APK
+        run: npm run tauri android build -- --debug --apk
 
-      - name: Upload Android APK
+      - name: Verify Android Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_PATH="src-tauri/gen/android/app/build/outputs/apk"
+
+          find "$APK_PATH" -type f -name "*.apk" -print
+
+          APK_COUNT=$(find "$APK_PATH" -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "No Android APK was generated."
+            exit 1
+          fi
+
+          while IFS= read -r APK; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          done < <(find "$APK_PATH" -type f -name "*.apk")
+
+      - name: Upload Android Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: koai-android-${{ steps.version.outputs.app_version }}
+          name: koai-android-debug-${{ steps.version.outputs.app_version }}
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
-      - name: Upload Android APK to release
+      - name: Upload Android Debug APK to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.app_version }}
