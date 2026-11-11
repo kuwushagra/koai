@@ -237,10 +237,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "NDK_HOME=$NDK_HOME"
-
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/cmdline-tools"
           test -d "$ANDROID_HOME/platform-tools"
@@ -250,9 +246,8 @@ jobs:
           test -f "$NDK_HOME/source.properties"
           test -d "$ANDROID_HOME/cmake/3.22.1"
 
-          sdkmanager --version
-          adb version
           java -version
+          adb version
           rustup target list --installed
 
       - name: Verify generated Android project
@@ -264,10 +259,19 @@ jobs:
           test -f src-tauri/gen/android/app/build.gradle.kts
           test -f src-tauri/gen/android/app/tauri.build.gradle.kts
 
-          grep -q "signingConfigs" \
+          grep -q 'create("release")' \
             src-tauri/gen/android/app/build.gradle.kts
 
-          echo "Android project and signing configuration found."
+          grep -q 'signingConfig = signingConfigs.getByName("release")' \
+            src-tauri/gen/android/app/build.gradle.kts
+
+          grep -q 'compileSdk = 35' \
+            src-tauri/gen/android/app/build.gradle.kts
+
+          grep -q 'targetSdk = 35' \
+            src-tauri/gen/android/app/build.gradle.kts
+
+          echo "Android project configuration verified."
 
       - name: Configure Android release signing
         shell: bash
@@ -328,7 +332,7 @@ jobs:
           while IFS= read -r APK; do
             APK_COUNT=$((APK_COUNT + 1))
 
-            echo "Verifying: $APK"
+            echo "Verifying $APK"
 
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
               verify --verbose "$APK"
