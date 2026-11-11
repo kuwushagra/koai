@@ -1,3 +1,4 @@
+
 name: koai Release
 
 on:
@@ -158,17 +159,33 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools,platforms;android-35,build-tools;35.0.0,ndk;27.2.12479018,cmake;3.22.1
+          packages: ''
 
-      - name: Configure Android NDK
+      - name: Install Android SDK packages
+        shell: bash
         run: |
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+
+      - name: Configure Android environment
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - name: Verify Android environment
+        shell: bash
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018"
+          echo "NDK_HOME=$NDK_HOME"
 
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/platform-tools"
@@ -176,6 +193,8 @@ jobs:
           test -d "$ANDROID_HOME/build-tools/35.0.0"
           test -d "$ANDROID_HOME/ndk/27.2.12479018"
           test -d "$ANDROID_HOME/cmake/3.22.1"
+
+          sdkmanager --version
 
       - name: Initialize Tauri Android project
         run: npm run tauri android init
