@@ -40,7 +40,8 @@ import {
   Square,
   GitBranch,
   AlertTriangle,
-  Settings
+  Settings,
+  LockKeyhole
 } from "lucide-react";
 
 import { check } from "@tauri-apps/plugin-updater";
@@ -62,6 +63,7 @@ interface OpenFile {
   path: string;
   name: string;
   content: string;
+  savedContent: string;
   language: string;
   dirty: boolean;
 }
@@ -75,6 +77,13 @@ interface SearchResult {
 interface AssistantMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+interface AISettings {
+  provider: string;
+  model: string;
+  customUrl: string;
+  apiKey: string;
 }
 
 type MenuName = "koai" | "file" | "search" | null;
@@ -178,6 +187,11 @@ function App() {
 
   const [customApiUrl, setCustomApiUrl] = useState("");
 
+  const [aiUnlocked, setAiUnlocked] = useState(false);
+  const [aiSetupRequired, setAiSetupRequired] = useState(false);
+  const [masterPassword, setMasterPassword] = useState("");
+  const [unlockError, setUnlockError] = useState("");
+
   const [assistantLoading, setAssistantLoading] = useState(false);
 
   const [rootDirectory, setRootDirectory] = useState("");
@@ -201,6 +215,92 @@ function App() {
   const [explorerWidth, setExplorerWidth] = useState(240);
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [assistantHeight, setAssistantHeight] = useState(300);
+
+
+  const checkAIEncryption = async () => {
+    try {
+      const exists = await invoke<boolean>("has_ai_settings");
+      const unlocked = await invoke<boolean>("is_ai_unlocked");
+
+      setAiSetupRequired(!exists);
+      setAiUnlocked(unlocked);
+
+      if (unlocked) {
+        const settings = await invoke<AISettings | null>(
+          "get_ai_settings"
+        );
+
+        if (settings) {
+          setAiProvider(settings.provider as AIProvider);
+          setAiModel(settings.model);
+          setCustomApiUrl(settings.customUrl);
+          setAiApiKey(settings.apiKey);
+        }
+      }
+    } catch (error) {
+      console.error("AI encryption check failed:", error);
+
+      setAiUnlocked(false);
+      setAiApiKey("");
+      setAiModel("");
+      setCustomApiUrl("");
+      setAiProvider("");
+      setUnlockError(normalizeError(error));
+    }
+  };
+
+  const setupAIMasterPassword = async () => {
+    if (masterPassword.length < 12) {
+      setUnlockError(
+        "Master password must contain at least 12 characters."
+      );
+      return;
+    }
+
+    try {
+      setUnlockError("");
+
+      await invoke("setup_master_password", {
+        password: masterPassword,
+      });
+
+      setMasterPassword("");
+      setAiUnlocked(true);
+      setAiSetupRequired(false);
+
+      await checkAIEncryption();
+
+      showToast("AI security configured successfully.");
+    } catch (error) {
+      setUnlockError(normalizeError(error));
+    }
+  };
+
+  const unlockAI = async () => {
+    try {
+      setUnlockError("");
+
+      const settings = await invoke<AISettings>(
+        "unlock_ai_settings",
+        {
+          password: masterPassword,
+        }
+      );
+
+      setAiProvider(settings.provider as AIProvider);
+      setAiModel(settings.model);
+      setCustomApiUrl(settings.customUrl);
+      setAiApiKey(settings.apiKey);
+
+      setMasterPassword("");
+      setAiUnlocked(true);
+
+      showToast("AI unlocked successfully.");
+    } catch (error) {
+      setUnlockError(normalizeError(error));
+    }
+  };
+
 
   const resizeRef = useRef<{
     type: "explorer" | "terminal" | "assistant";
@@ -430,36 +530,6 @@ function App() {
     };
   }, []);
 
-  const loadAISettings = useCallback(async () => {
-  try {
-    const settings = await invoke<{
-      provider: AIProvider;
-      model: string;
-      customUrl: string;
-      apiKey: string;
-    } | null>("get_ai_settings");
-
-    if (!settings) {
-      console.log("No saved AI settings found.");
-      return;
-    }
-
-    setAiProvider(settings.provider);
-    setAiModel(settings.model || "");
-    setCustomApiUrl(settings.customUrl || "");
-    setAiApiKey(settings.apiKey || "");
-
-    console.log("AI settings loaded successfully.");
-  } catch (error) {
-    console.error("AI settings loading failed:", error);
-    showToast(`Settings loading failed: ${normalizeError(error)}`);
-  }
-}, [showToast]);
-
-  useEffect(() => {
-    void loadAISettings();
-  }, [loadAISettings]);
-
   const toggleMenu = (menu: MenuName) => {
     setActiveMenu((previous) =>
       previous === menu ? null : menu
@@ -617,10 +687,19 @@ function App() {
       }
 
       setOpenFiles((previous) =>
-        previous.map((file) => ({
-          ...file,
-          dirty: false,
-        }))
+        previous.map((file) => {
+          const saved = unsaved.find(
+            (item) => item.path === file.path
+          );
+
+          if (!saved) return file;
+
+          return {
+            ...file,
+            savedContent: saved.content,
+            dirty: file.content !== saved.content,
+          };
+        })
       );
 
       showToast("All files saved");
@@ -654,6 +733,7 @@ function App() {
           path,
           name: fileName,
           content,
+          savedContent: content,
           language: getLanguage(fileName),
           dirty: false,
         };
@@ -770,7 +850,7 @@ function App() {
             ? {
               ...file,
               content,
-              dirty: content !== file.content || file.dirty,
+              dirty: content !== file.savedContent,
             }
             : file
         )
@@ -834,10 +914,12 @@ function App() {
         previous.map((file) =>
           file.path === currentFile.path
             ? {
+
               ...file,
               path: destination,
               name,
               language: getLanguage(name),
+              savedContent: file.content,
               dirty: false,
             }
             : file
@@ -1014,7 +1096,7 @@ function App() {
 
       setConfirmCloseFile(null);
     },
-    [activeFile, showToast, loadDirectory]
+    [activeFile, openFiles, showToast]
   );
 
   const discardAndCloseFile = useCallback(
@@ -1258,6 +1340,20 @@ function App() {
     }
   };
 
+  const lockAI = async () => {
+    try {
+      await invoke("lock_ai_settings");
+
+      setAiUnlocked(false);
+      setAiApiKey("");
+      setAiModel("");
+      setCustomApiUrl("");
+      setAiProvider("");
+      setMasterPassword("");
+    } catch (error) {
+      console.error("AI locking failed:", error);
+    }
+  };
 
   const saveAISettings = async () => {
     if (!aiProvider) {
@@ -1486,6 +1582,10 @@ function App() {
       showToast,
     ]
   );
+
+  useEffect(() => {
+    void checkAIEncryption();
+  }, []);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyboard);
@@ -2450,89 +2550,148 @@ function App() {
 
             {settingsView === "ai" && (
               <div className="settings-page">
-                <h2>AI Settings</h2>
-
+                <h2 className="ai-settings-label">AI Settings</h2>
                 <p className="settings-description">
                   Configure your AI provider.
                 </p>
+                {!aiUnlocked ? (
+                  <div className="ai-unlock-screen">
+                    <div className="ai-unlock-icon">
+                      <LockKeyhole size={36} />
+                    </div>
 
-                <label className="settings-label">
-                  Provider
-                </label>
+                    <h2>
+                      {aiSetupRequired ? "Secure Your AI Settings" : "Unlock koai Assistant Settings"}
+                    </h2>
 
-                <select
-                  className="settings-select"
-                  value={aiProvider}
-                  onChange={(event) => {
-                    const provider = event.target.value as AIProvider | "";
-                    setAiProvider(provider);
-                    localStorage.setItem("koai-provider", provider);
-                  }}
-                >
-                  <option value="">Select provider</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="google">Google</option>
-                  <option value="custom">Custom API</option>
-                </select>
+                    <p>
+                      {aiSetupRequired
+                        ? "Create a master password to encrypt your AI credentials."
+                        : "Enter your master password to access your AI credentials."}
+                    </p>
 
-                <label className="settings-label">
-                  Model
-                </label>
+                    <input
+                      type="password"
+                      value={masterPassword}
+                      onChange={(e) => setMasterPassword(e.target.value)}
+                      placeholder={
+                        aiSetupRequired
+                          ? "Create master password (12+ characters)"
+                          : "Enter master password"
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          if (aiSetupRequired) {
+                            void setupAIMasterPassword();
+                          } else {
+                            void unlockAI();
+                          }
+                        }
+                      }}
+                    />
 
-                <input
-                  className="settings-input"
-                  type="text"
-                  placeholder="gpt-5.5 / gemini-3.5-flash / claude-sonnet-4-5"
-                  value={aiModel}
-                  onChange={(event) =>
-                    setAiModel(event.target.value)
-                  }
-                />
+                    {unlockError && (
+                      <p className="error-message">{unlockError}</p>
+                    )}
 
-                {aiProvider === "custom" && (
+                    <button
+                      onClick={() => {
+                        if (aiSetupRequired) {
+                          void setupAIMasterPassword();
+                        } else {
+                          void unlockAI();
+                        }
+                      }}
+                      disabled={masterPassword.length === 0}
+                    >
+                      {aiSetupRequired ? "Create Secure Storage" : "Unlock AI"}
+                    </button>
+                  </div>
+                ) : (
                   <>
+                    <div className="ai-security-status">
+                      <span>AI settings unlocked</span>
+                      <button onClick={() => void lockAI()}>
+                        Lock AI
+                      </button>
+                    </div>
+
                     <label className="settings-label">
-                      API Endpoint
+                      Provider
+                    </label>
+
+                    <select
+                      className="settings-select"
+                      value={aiProvider}
+                      onChange={(event) => {
+                        const provider = event.target.value as AIProvider | "";
+                        setAiProvider(provider);
+                        localStorage.setItem("koai-provider", provider);
+                      }}
+                    >
+                      <option value="">Select provider</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic</option>
+                      <option value="google">Google</option>
+                      <option value="custom">Custom API</option>
+                    </select>
+
+                    <label className="settings-label">
+                      Model
                     </label>
 
                     <input
                       className="settings-input"
                       type="text"
-                      placeholder="https://your-api.com/v1"
-                      value={customApiUrl}
+                      placeholder="gpt-5.5 / gemini-3.5-flash / claude-sonnet-4-5"
+                      value={aiModel}
                       onChange={(event) =>
-                        setCustomApiUrl(event.target.value)
+                        setAiModel(event.target.value)
                       }
                     />
+
+                    {aiProvider === "custom" && (
+                      <>
+                        <label className="settings-label">
+                          API Endpoint
+                        </label>
+
+                        <input
+                          className="settings-input"
+                          type="text"
+                          placeholder="https://your-api.com/v1"
+                          value={customApiUrl}
+                          onChange={(event) =>
+                            setCustomApiUrl(event.target.value)
+                          }
+                        />
+                      </>
+                    )}
+
+                    <label className="settings-label">
+                      API Key
+                    </label>
+
+                    <input
+                      type="password"
+                      value={aiApiKey}
+                      onChange={(e) => setAiApiKey(e.target.value)}
+                      placeholder="Enter API key"
+                    />
+
+                    <p className="settings-description">
+                      Go to your preferred AI service to generate an API Key for koai
+                    </p>
+
+                    <button
+                      className="settings-action primary"
+                      onClick={() => void saveAISettings()}
+                    >
+                      <Save size={15} />
+                      Save AI Settings
+                    </button>
                   </>
                 )}
-
-                <label className="settings-label">
-                  API Key
-                </label>
-
-                <input
-                  className="settings-input"
-                  type="password"
-                  placeholder="Enter API key"
-                  value={aiApiKey}
-                  onChange={(event) =>
-                    setAiApiKey(event.target.value)
-                  }
-                />
-
-                <p className="settings-description">
-                  Go to your preferred AI service to generate an API Key for koai
-                </p>
-
-                <button
-                  className="settings-action primary"
-                  onClick={() => void saveAISettings()}
-                >
-                  <Save size={15} />
-                  Save AI Settings
-                </button>
               </div>
             )}
 
