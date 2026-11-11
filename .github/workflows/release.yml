@@ -65,7 +65,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         run: npm install
@@ -105,7 +105,9 @@ jobs:
 
   android:
     runs-on: ubuntu-22.04
-    needs: publish
+
+    outputs:
+      app_version: ${{ steps.version.outputs.app_version }}
 
     steps:
       - name: Checkout
@@ -141,7 +143,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -167,18 +169,59 @@ jobs:
         run: |
           set -euo pipefail
 
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK path not found."
+            exit 1
+          fi
+
+          NDK_VERSION="27.2.12479018"
+          NDK_PATH="$SDK_ROOT/ndk/$NDK_VERSION"
+
           sdkmanager --install \
-            "platforms;android-35" \
+            "platforms;android-37" \
             "build-tools;35.0.0" \
-            "ndk;27.2.12479018" \
             "cmake;3.22.1"
+
+          NDK_INSTALLED=0
+
+          for attempt in 1 2 3; do
+            echo "Installing Android NDK attempt $attempt of 3"
+
+            rm -rf "$NDK_PATH"
+            rm -rf "$SDK_ROOT/temp"
+            rm -rf "$HOME/.android/cache"
+
+            if sdkmanager --install "ndk;$NDK_VERSION" --verbose; then
+              if [ -f "$NDK_PATH/source.properties" ] && \
+                 [ -f "$NDK_PATH/ndk-build" ]; then
+                NDK_INSTALLED=1
+                break
+              fi
+            fi
+
+            echo "NDK installation attempt $attempt failed."
+
+            if [ "$attempt" -lt 3 ]; then
+              sleep 10
+            fi
+          done
+
+          if [ "$NDK_INSTALLED" -ne 1 ]; then
+            echo "Android NDK installation failed after 3 attempts."
+            exit 1
+          fi
+
+          echo "NDK installation verified."
+          cat "$NDK_PATH/source.properties"
 
       - name: Configure Android environment
         shell: bash
         run: |
           set -euo pipefail
 
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
@@ -197,9 +240,10 @@ jobs:
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/cmdline-tools"
           test -d "$ANDROID_HOME/platform-tools"
-          test -d "$ANDROID_HOME/platforms/android-35"
+          test -d "$ANDROID_HOME/platforms/android-37"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
           test -d "$ANDROID_HOME/ndk/27.2.12479018"
+          test -f "$NDK_HOME/source.properties"
           test -d "$ANDROID_HOME/cmake/3.22.1"
 
           sdkmanager --version
@@ -256,7 +300,6 @@ jobs:
           set -euo pipefail
 
           APK_DIR="src-tauri/gen/android/app/build/outputs/apk"
-
           APK_COUNT=0
 
           while IFS= read -r APK; do
@@ -277,18 +320,47 @@ jobs:
             exit 1
           fi
 
-      - name: Upload Android Release APK
+      - name: Upload Android Release Artifact
         uses: actions/upload-artifact@v4
         with:
           name: koai-android-release-${{ steps.version.outputs.app_version }}
           path: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
           if-no-files-found: error
+          retention-days: 30
 
-      - name: Upload Android Release APK to GitHub Release
+  android-release:
+    runs-on: ubuntu-22.04
+    needs:
+      - publish
+      - android
+
+    steps:
+      - name: Download Android Release Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: koai-android-release-${{ needs.android.outputs.app_version }}
+          path: android-release
+
+      - name: Verify downloaded APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_COUNT=$(find android-release -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "No Android APK found."
+            exit 1
+          fi
+
+          find android-release -type f -name "*.apk" -print
+
+      - name: Upload Android APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.app_version }}
-          files: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
+          tag_name: v${{ needs.android.outputs.app_version }}
+          files: android-release/*.apk
           fail_on_unmatched_files: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
