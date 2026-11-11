@@ -1,3 +1,4 @@
+
 [package]
 name = "koai"
 version = "1.2.0"
@@ -5,12 +6,7 @@ description = "Minimalist code editor"
 authors = ["kuwushagra"]
 edition = "2024"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "koai_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -22,23 +18,21 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde_json = "1"
 tauri-plugin-dialog = "2.8.4"
-portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }
-tauri-plugin-process = "2"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 aes-gcm = "0.10"
 argon2 = "0.5"
 rand = "0.8"
 zeroize = "1"
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+portable-pty = "0.9"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 
-# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
 panic = "abort"
 strip = true
-
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-updater = "2"
