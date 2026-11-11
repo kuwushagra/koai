@@ -1,3 +1,4 @@
+
 mod commands;
 mod terminal;
 use commands::filesystem::*;
@@ -11,6 +12,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             ai::ai_chat,
+            ai::setup_master_password,
+            ai::unlock_ai_settings,
+            ai::lock_ai_settings,
+            ai::is_ai_unlocked,
+            ai::has_ai_settings,
             ai::save_ai_settings,
             ai::get_ai_settings,
             read_file,
@@ -25,6 +31,7 @@ pub fn run() {
             terminal::terminal_resize,
             terminal::terminal_close
         ])
+        .manage(ai::AIEncryptionState::default())
         .manage(terminal::TerminalState::default())
         .run(tauri::generate_context!())
         .expect("error while running koai");
