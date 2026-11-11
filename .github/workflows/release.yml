@@ -151,21 +151,29 @@ jobs:
         run: npm install
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
-          sdkmanager "ndk;27.2.12479018"
-          sdkmanager "cmake;3.22.1"
-          yes | sdkmanager --licenses
+          SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager"
 
-      - name: Setup Android environment
+          yes | "$SDKMANAGER" --licenses
+
+          "$SDKMANAGER" "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+
+          echo "NDK_HOME=/usr/local/lib/android/sdk/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Verify Android environment
         run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          test -d "$ANDROID_HOME"
+          test -d "$NDK_HOME"
+          echo "Android SDK and NDK installed successfully"
 
       - name: Install Rust targets
         run: |
