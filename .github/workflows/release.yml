@@ -147,41 +147,27 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
       - name: Install dependencies
         run: npm install
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
+            ndk;27.2.12479018
+            cmake;3.22.1
 
-      - name: Install Android SDK packages
+      - name: Configure Android NDK
         run: |
-          sdkmanager --licenses
-
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;27.2.12479018" \
-            "cmake;3.22.1"
-
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
-
-      - name: Verify Android environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "NDK_HOME=$NDK_HOME"
-
-          test -d "$ANDROID_HOME"
-          test -d "$NDK_HOME"
-          test -f "$ANDROID_HOME/platform-tools/adb"
-          test -d "$ANDROID_HOME/platforms/android-35"
-          test -d "$ANDROID_HOME/build-tools/35.0.0"
-
-      - name: Install Rust targets
-        run: |
-          rustup target add aarch64-linux-android
-          rustup target add x86_64-linux-android
 
       - name: Initialize Tauri Android project
         run: npm run tauri android init
