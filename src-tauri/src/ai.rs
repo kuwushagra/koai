@@ -1,7 +1,6 @@
-
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::Duration;
 
 #[derive(Debug, Deserialize)]
@@ -63,10 +62,7 @@ fn build_instructions(context: Option<FileContext>) -> String {
              File contents:\n\
              ```{}\n{}\n```\n\
              Use this file as context when answering the user.",
-            file.file_name,
-            file.language,
-            file.language,
-            file.content
+            file.file_name, file.language, file.language, file.content
         ));
     }
 
@@ -78,9 +74,10 @@ fn validate_messages(messages: &[ChatMessage]) -> Result<(), String> {
         return Err("Conversation is empty.".into());
     }
 
-    if messages.iter().any(|m| {
-        m.role != "user" && m.role != "assistant"
-    }) {
+    if messages
+        .iter()
+        .any(|m| m.role != "user" && m.role != "assistant")
+    {
         return Err("Invalid conversation message role.".into());
     }
 
@@ -111,10 +108,7 @@ fn extract_openai_text(body: &Value) -> String {
     output
 }
 
-async fn read_api_response(
-    response: reqwest::Response,
-    provider: &str,
-) -> Result<Value, String> {
+async fn read_api_response(response: reqwest::Response, provider: &str) -> Result<Value, String> {
     let status = response.status();
 
     let text = response
@@ -122,15 +116,12 @@ async fn read_api_response(
         .await
         .map_err(|e| format!("Could not read {} response: {}", provider, e))?;
 
-    let body: Value = serde_json::from_str(&text)
-        .map_err(|_| {
-            format!(
-                "{} returned an invalid response ({}): {}",
-                provider,
-                status,
-                text
-            )
-        })?;
+    let body: Value = serde_json::from_str(&text).map_err(|_| {
+        format!(
+            "{} returned an invalid response ({}): {}",
+            provider, status, text
+        )
+    })?;
 
     if !status.is_success() {
         let error = body["error"]["message"]
@@ -138,12 +129,7 @@ async fn read_api_response(
             .or_else(|| body["message"].as_str())
             .unwrap_or("Unknown API error");
 
-        return Err(format!(
-            "{} API error ({}): {}",
-            provider,
-            status,
-            error
-        ));
+        return Err(format!("{} API error ({}): {}", provider, status, error));
     }
 
     Ok(body)
@@ -245,9 +231,7 @@ async fn google_chat(
 
     let mut output = String::new();
 
-    if let Some(parts) = body["candidates"][0]["content"]["parts"]
-        .as_array()
-    {
+    if let Some(parts) = body["candidates"][0]["content"]["parts"].as_array() {
         for part in parts {
             if let Some(text) = part["text"].as_str() {
                 output.push_str(text);
@@ -340,12 +324,10 @@ async fn custom_chat(
         format!("{}/v1/chat/completions", base_url)
     };
 
-    let mut input = vec![
-        json!({
-            "role": "system",
-            "content": instructions
-        })
-    ];
+    let mut input = vec![json!({
+        "role": "system",
+        "content": instructions
+    })];
 
     for message in messages {
         input.push(json!({
@@ -419,34 +401,12 @@ pub async fn ai_chat(
         .map_err(|e| format!("HTTP client error: {}", e))?;
 
     match provider.as_str() {
-        "openai" => {
-            openai_chat(
-                &client,
-                api_key.trim(),
-                &model,
-                &instructions,
-                &messages,
-            ).await
-        }
+        "openai" => openai_chat(&client, api_key.trim(), &model, &instructions, &messages).await,
 
-        "google" => {
-            google_chat(
-                &client,
-                api_key.trim(),
-                &model,
-                &instructions,
-                &messages,
-            ).await
-        }
+        "google" => google_chat(&client, api_key.trim(), &model, &instructions, &messages).await,
 
         "anthropic" => {
-            anthropic_chat(
-                &client,
-                api_key.trim(),
-                &model,
-                &instructions,
-                &messages,
-            ).await
+            anthropic_chat(&client, api_key.trim(), &model, &instructions, &messages).await
         }
 
         "custom" => {
@@ -457,7 +417,8 @@ pub async fn ai_chat(
                 custom_url.as_deref(),
                 &instructions,
                 &messages,
-            ).await
+            )
+            .await
         }
 
         _ => Err("Unsupported AI provider.".into()),
@@ -501,25 +462,27 @@ pub fn save_ai_settings(
     let serialized = serde_json::to_string(&settings)
         .map_err(|e| format!("Could not serialize AI settings: {}", e))?;
 
-    let entry = keyring::Entry::new(
-        AI_SETTINGS_SERVICE,
-        AI_SETTINGS_ACCOUNT,
-    )
-    .map_err(|e| format!("Credential storage error: {}", e))?;
+    let entry = keyring::Entry::new(AI_SETTINGS_SERVICE, AI_SETTINGS_ACCOUNT)
+        .map_err(|e| format!("Credential storage error: {}", e))?;
 
-    entry.set_password(&serialized)
+    entry
+        .set_password(&serialized)
         .map_err(|e| format!("Could not save AI settings: {}", e))?;
+    let saved = entry
+        .get_password()
+        .map_err(|e| format!("Verification failed: {}", e))?;
+
+    if saved != serialized {
+        return Err("Saved settings verification failed.".into());
+    }
 
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_ai_settings() -> Result<Option<AISettings>, String> {
-    let entry = keyring::Entry::new(
-        AI_SETTINGS_SERVICE,
-        AI_SETTINGS_ACCOUNT,
-    )
-    .map_err(|e| format!("Credential storage error: {}", e))?;
+    let entry = keyring::Entry::new(AI_SETTINGS_SERVICE, AI_SETTINGS_ACCOUNT)
+        .map_err(|e| format!("Credential storage error: {}", e))?;
 
     let password = match entry.get_password() {
         Ok(password) => password,
@@ -529,15 +492,12 @@ pub fn get_ai_settings() -> Result<Option<AISettings>, String> {
         }
 
         Err(error) => {
-            return Err(format!(
-                "Could not retrieve AI settings: {}",
-                error
-            ));
+            return Err(format!("Could not retrieve AI settings: {}", error));
         }
     };
 
-    let settings: AISettings = serde_json::from_str(&password)
-        .map_err(|e| format!("Invalid saved AI settings: {}", e))?;
+    let settings: AISettings =
+        serde_json::from_str(&password).map_err(|e| format!("Invalid saved AI settings: {}", e))?;
 
     Ok(Some(settings))
 }

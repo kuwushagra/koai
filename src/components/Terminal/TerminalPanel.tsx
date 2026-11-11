@@ -21,7 +21,8 @@ export default function TerminalPanel({ cwd }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -36,24 +37,54 @@ export default function TerminalPanel({ cwd }: Props) {
     });
 
     const fitAddon = new FitAddon();
+
     terminal.loadAddon(fitAddon);
-    terminal.open(containerRef.current);
-    fitAddon.fit();
+    terminal.open(container);
 
     let sessionId: string | null = null;
     let disposed = false;
+    let animationFrame = 0;
 
     let unlistenOutput: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
+
+    const fitTerminal = () => {
+      if (disposed) return;
+
+      cancelAnimationFrame(animationFrame);
+
+      animationFrame = requestAnimationFrame(() => {
+        if (disposed) return;
+
+        if (
+          container.clientWidth <= 0 ||
+          container.clientHeight <= 0
+        ) {
+          return;
+        }
+
+        try {
+          fitAddon.fit();
+
+          if (sessionId) {
+            void invoke("terminal_resize", {
+              sessionId,
+              cols: terminal.cols,
+              rows: terminal.rows,
+            }).catch(console.error);
+          }
+        } catch (error) {
+          console.error("Terminal fit error:", error);
+        }
+      });
+    };
 
     const start = async () => {
       try {
         unlistenOutput = await listen<TerminalOutput>(
           "terminal-output",
           (event) => {
-            if (
-              event.payload.session_id === sessionId
-            ) {
+            if (event.payload.session_id === sessionId) {
               terminal.write(event.payload.data);
             }
           }
@@ -69,6 +100,8 @@ export default function TerminalPanel({ cwd }: Props) {
         );
 
         if (disposed) return;
+
+        fitTerminal();
 
         const id = await invoke<string>("terminal_spawn", {
           cwd: cwd || null,
@@ -101,6 +134,7 @@ export default function TerminalPanel({ cwd }: Props) {
           });
         });
 
+        fitTerminal();
         terminal.focus();
       } catch (error) {
         terminal.writeln(
@@ -109,24 +143,18 @@ export default function TerminalPanel({ cwd }: Props) {
       }
     };
 
-    void start();
-
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-
-      if (sessionId) {
-        void invoke("terminal_resize", {
-          sessionId,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        }).catch(console.error);
-      }
+      fitTerminal();
     });
 
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(container);
+
+    void start();
 
     return () => {
       disposed = true;
+
+      cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
 
       unlistenOutput?.();
@@ -148,7 +176,9 @@ export default function TerminalPanel({ cwd }: Props) {
       style={{
         width: "100%",
         height: "100%",
-        minHeight: 150,
+        minWidth: 0,
+        minHeight: 0,
+        boxSizing: "border-box",
         padding: 8,
         background: "#111318",
         overflow: "hidden",

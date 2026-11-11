@@ -198,6 +198,16 @@ function App() {
   const [assistantVisible, setAssistantVisible] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
 
+  const [explorerWidth, setExplorerWidth] = useState(240);
+  const [terminalHeight, setTerminalHeight] = useState(220);
+  const [assistantHeight, setAssistantHeight] = useState(300);
+
+  const resizeRef = useRef<{
+    type: "explorer" | "terminal" | "assistant";
+    startPosition: number;
+    startSize: number;
+  } | null>(null);
+
   const [searchMode, setSearchMode] = useState<SearchMode>("files");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -220,6 +230,95 @@ function App() {
 
   const [confirmCloseFile, setConfirmCloseFile] = useState<string | null>(null);
   const [confirmWorkspaceChange, setConfirmWorkspaceChange] = useState(false);
+
+
+  const startResize = (
+    event: React.PointerEvent<HTMLDivElement>,
+    type: "explorer" | "terminal" | "assistant"
+  ) => {
+    event.preventDefault();
+
+    const startPosition =
+      type === "explorer" ? event.clientX : event.clientY;
+
+    const startSize =
+      type === "explorer"
+        ? explorerWidth
+        : type === "terminal"
+          ? terminalHeight
+          : assistantHeight;
+
+    resizeRef.current = {
+      type,
+      startPosition,
+      startSize,
+    };
+
+    document.body.style.cursor =
+      type === "explorer" ? "col-resize" : "row-resize";
+
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!resizeRef.current) return;
+
+      const { type, startPosition, startSize } =
+        resizeRef.current;
+
+      const currentPosition =
+        type === "explorer"
+          ? moveEvent.clientX
+          : moveEvent.clientY;
+
+      const delta = currentPosition - startPosition;
+
+      if (type === "explorer") {
+        setExplorerWidth(
+          Math.min(500, Math.max(160, startSize + delta))
+        );
+      }
+
+      if (type === "terminal") {
+        setTerminalHeight(
+          Math.min(
+            window.innerHeight * 0.75,
+            Math.max(100, startSize - delta)
+          )
+        );
+      }
+
+      if (type === "assistant") {
+        setAssistantHeight(
+          Math.min(
+            window.innerHeight * 0.75,
+            Math.max(120, startSize - delta)
+          )
+        );
+      }
+    };
+
+    const handlePointerUp = () => {
+      resizeRef.current = null;
+
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+
+      window.removeEventListener(
+        "pointermove",
+        handlePointerMove
+      );
+
+      window.removeEventListener(
+        "pointerup",
+        handlePointerUp
+      );
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
+
+
 
   const renderWorkspaceChangeDialog = () => {
     if (!confirmWorkspaceChange) return null;
@@ -332,26 +431,30 @@ function App() {
   }, []);
 
   const loadAISettings = useCallback(async () => {
-    try {
-      const settings = await invoke<{
-        provider: AIProvider;
-        model: string;
-        customUrl: string;
-        apiKey: string;
-      } | null>("get_ai_settings");
+  try {
+    const settings = await invoke<{
+      provider: AIProvider;
+      model: string;
+      customUrl: string;
+      apiKey: string;
+    } | null>("get_ai_settings");
 
-      if (!settings) return;
-
-      setAiProvider(settings.provider);
-      setAiModel(settings.model || "");
-      setCustomApiUrl(settings.customUrl || "");
-      setAiApiKey(settings.apiKey || "");
-
-    } catch (error) {
-      console.error("Could not load AI settings:", error);
-      showToast("Could not load saved AI settings");
+    if (!settings) {
+      console.log("No saved AI settings found.");
+      return;
     }
-  }, [showToast]);
+
+    setAiProvider(settings.provider);
+    setAiModel(settings.model || "");
+    setCustomApiUrl(settings.customUrl || "");
+    setAiApiKey(settings.apiKey || "");
+
+    console.log("AI settings loaded successfully.");
+  } catch (error) {
+    console.error("AI settings loading failed:", error);
+    showToast(`Settings loading failed: ${normalizeError(error)}`);
+  }
+}, [showToast]);
 
   useEffect(() => {
     void loadAISettings();
@@ -1513,7 +1616,7 @@ function App() {
   };
 
   const renderFileExplorer = () => (
-    <aside className={`file-explorer ${sidebarVisible ? "" : "hidden"}`}>
+    <aside className="file-explorer">
       <div className="panel-heading">
         <div className="panel-title">
           <FolderOpen size={15} />
@@ -1936,17 +2039,17 @@ function App() {
           </div>
         )}
         {assistantMessages.some(
-  (message) => message.role === "assistant"
-) && (
-  <div className="assistant-suggestions">
-    <button
-      onClick={() => void applyAIResponse()}
-      disabled={!currentFile || assistantLoading}
-    >
-      Apply to Editor
-    </button>
-  </div>
-)}
+          (message) => message.role === "assistant"
+        ) && (
+            <div className="assistant-suggestions">
+              <button
+                onClick={() => void applyAIResponse()}
+                disabled={!currentFile || assistantLoading}
+              >
+                Apply to Editor
+              </button>
+            </div>
+          )}
       </div>
 
       <div className="assistant-input">
@@ -2030,7 +2133,6 @@ function App() {
             className="brand-button"
             onClick={openKoaiMenu}
           >
-            <span className="brand-logo"><img className="brand-logo" src={koaiLogo}></img></span>
             <span>koai</span>
           </button>
         </div>
@@ -2421,8 +2523,7 @@ function App() {
                 />
 
                 <p className="settings-description">
-                  API keys should be stored using secure operating-system
-                  credential storage rather than browser local storage.
+                  Go to your preferred AI service to generate an API Key for koai
                 </p>
 
                 <button
@@ -2657,7 +2758,23 @@ function App() {
       {renderTopBar()}
 
       <div className="workspace">
-        {renderFileExplorer()}
+        {sidebarVisible && (
+          <>
+            <div
+              className="file-explorer-wrapper"
+              style={{ width: explorerWidth }}
+            >
+              {renderFileExplorer()}
+            </div>
+
+            <div
+              className="resize-handle horizontal"
+              onPointerDown={(event) =>
+                startResize(event, "explorer")
+              }
+            />
+          </>
+        )}
 
         <div className="workspace-main">
           {renderEditor()}
@@ -2667,8 +2784,36 @@ function App() {
             assistantVisible) && (
               <div className="workspace-panels">
                 {searchVisible && renderSearchPanel()}
-                {terminalVisible && renderTerminal()}
-                {assistantVisible && renderAssistant()}
+
+                {terminalVisible && (
+                  <div
+                    className="resizable-panel"
+                    style={{ height: terminalHeight }}
+                  >
+                    <div
+                      className="resize-handle vertical"
+                      onPointerDown={(event) =>
+                        startResize(event, "terminal")
+                      }
+                    />
+                    {renderTerminal()}
+                  </div>
+                )}
+
+                {assistantVisible && (
+                  <div
+                    className="resizable-panel"
+                    style={{ height: assistantHeight }}
+                  >
+                    <div
+                      className="resize-handle vertical"
+                      onPointerDown={(event) =>
+                        startResize(event, "assistant")
+                      }
+                    />
+                    {renderAssistant()}
+                  </div>
+                )}
               </div>
             )}
         </div>
