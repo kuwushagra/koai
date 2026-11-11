@@ -180,14 +180,14 @@ jobs:
           NDK_PATH="$SDK_ROOT/ndk/$NDK_VERSION"
 
           sdkmanager --install \
-            "platforms;android-37" \
+            "platforms;android-35" \
             "build-tools;35.0.0" \
             "cmake;3.22.1"
 
           NDK_INSTALLED=0
 
           for attempt in 1 2 3; do
-            echo "Installing Android NDK attempt $attempt of 3"
+            echo "Installing NDK attempt $attempt of 3"
 
             rm -rf "$NDK_PATH"
             rm -rf "$SDK_ROOT/temp"
@@ -209,7 +209,7 @@ jobs:
           done
 
           if [ "$NDK_INSTALLED" -ne 1 ]; then
-            echo "Android NDK installation failed after 3 attempts."
+            echo "NDK installation failed after 3 attempts."
             exit 1
           fi
 
@@ -240,7 +240,7 @@ jobs:
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/cmdline-tools"
           test -d "$ANDROID_HOME/platform-tools"
-          test -d "$ANDROID_HOME/platforms/android-37"
+          test -d "$ANDROID_HOME/platforms/android-35"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
           test -d "$ANDROID_HOME/ndk/27.2.12479018"
           test -f "$NDK_HOME/source.properties"
