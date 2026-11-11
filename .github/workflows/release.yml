@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           COMMIT_NUMBER=$(git rev-list --count HEAD)
-          APP_VERSION="1.1.${COMMIT_NUMBER}"
+          APP_VERSION="1.2.${COMMIT_NUMBER}"
 
           echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
