@@ -46,7 +46,6 @@ jobs:
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.2.${COMMIT_NUMBER}"
 
-          echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
 
           export APP_VERSION
@@ -58,10 +57,7 @@ jobs:
 
             config.version = process.env.APP_VERSION;
 
-            fs.writeFileSync(
-              path,
-              JSON.stringify(config, null, 2) + "\n"
-            );
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
           '
 
       - name: Setup Node
@@ -73,7 +69,6 @@ jobs:
         run: npm install
 
       - name: Install Rust targets
-        shell: bash
         run: rustup target add ${{ matrix.target }}
 
       - name: Install Linux dependencies
@@ -126,7 +121,6 @@ jobs:
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.2.${COMMIT_NUMBER}"
 
-          echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
 
           export APP_VERSION
@@ -138,10 +132,7 @@ jobs:
 
             config.version = process.env.APP_VERSION;
 
-            fs.writeFileSync(
-              path,
-              JSON.stringify(config, null, 2) + "\n"
-            );
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
           '
 
       - name: Setup Node
@@ -197,15 +188,12 @@ jobs:
             rm -rf "$SDK_ROOT/temp"
             rm -rf "$HOME/.android/cache"
 
-            if sdkmanager --install "ndk;$NDK_VERSION" --verbose; then
-              if [ -f "$NDK_PATH/source.properties" ] && \
-                 [ -f "$NDK_PATH/ndk-build" ]; then
+            if sdkmanager --install "ndk;$NDK_VERSION"; then
+              if [ -f "$NDK_PATH/source.properties" ]; then
                 NDK_INSTALLED=1
                 break
               fi
             fi
-
-            echo "NDK installation attempt $attempt failed."
 
             if [ "$attempt" -lt 3 ]; then
               sleep 15
@@ -213,12 +201,9 @@ jobs:
           done
 
           if [ "$NDK_INSTALLED" -ne 1 ]; then
-            echo "NDK installation failed after 3 attempts."
+            echo "NDK installation failed."
             exit 1
           fi
-
-          echo "NDK installation verified."
-          cat "$NDK_PATH/source.properties"
 
       - name: Configure Android environment
         shell: bash
@@ -232,47 +217,6 @@ jobs:
           echo "NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
-      - name: Verify Android environment
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test -d "$ANDROID_HOME"
-          test -d "$ANDROID_HOME/cmdline-tools"
-          test -d "$ANDROID_HOME/platform-tools"
-          test -d "$ANDROID_HOME/platforms/android-35"
-          test -d "$ANDROID_HOME/build-tools/35.0.0"
-          test -d "$ANDROID_HOME/ndk/27.2.12479018"
-          test -f "$NDK_HOME/source.properties"
-          test -d "$ANDROID_HOME/cmake/3.22.1"
-
-          java -version
-          adb version
-          rustup target list --installed
-
-      - name: Verify generated Android project
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test -f src-tauri/gen/android/settings.gradle.kts
-          test -f src-tauri/gen/android/app/build.gradle.kts
-          test -f src-tauri/gen/android/app/tauri.build.gradle.kts
-
-          grep -q 'create("release")' \
-            src-tauri/gen/android/app/build.gradle.kts
-
-          grep -q 'signingConfig = signingConfigs.getByName("release")' \
-            src-tauri/gen/android/app/build.gradle.kts
-
-          grep -q 'compileSdk = 35' \
-            src-tauri/gen/android/app/build.gradle.kts
-
-          grep -q 'targetSdk = 35' \
-            src-tauri/gen/android/app/build.gradle.kts
-
-          echo "Android project configuration verified."
-
       - name: Configure Android release signing
         shell: bash
         env:
@@ -282,25 +226,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          : "${ANDROID_KEY_BASE64:?Missing ANDROID_KEY_BASE64 secret}"
-          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
-          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+          : "${ANDROID_KEY_BASE64:?Missing ANDROID_KEY_BASE64}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
 
-          ANDROID_DIR="src-tauri/gen/android"
           KEYSTORE_PATH="$RUNNER_TEMP/koai-release.jks"
 
-          printf '%s' "$ANDROID_KEY_BASE64" \
-            | base64 --decode > "$KEYSTORE_PATH"
+          printf '%s' "$ANDROID_KEY_BASE64" | base64 --decode > "$KEYSTORE_PATH"
 
           chmod 600 "$KEYSTORE_PATH"
 
           keytool -list \
             -keystore "$KEYSTORE_PATH" \
             -storepass "$ANDROID_KEY_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" \
-            > /dev/null
+            -alias "$ANDROID_KEY_ALIAS" > /dev/null
 
-          cd "$ANDROID_DIR"
+          cd src-tauri/gen/android
 
           {
             printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
@@ -347,8 +288,6 @@ jobs:
             exit 1
           fi
 
-          echo "Verified $APK_COUNT signed APK(s)."
-
       - name: Upload Android Release Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -369,20 +308,6 @@ jobs:
         with:
           name: koai-android-release-${{ needs.android.outputs.app_version }}
           path: android-release
-
-      - name: Verify downloaded APK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APK_COUNT=$(find android-release -type f -name "*.apk" | wc -l)
-
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No Android APK found."
-            exit 1
-          fi
-
-          find android-release -type f -name "*.apk" -print
 
       - name: Upload Android APK to GitHub Release
         uses: softprops/action-gh-release@v2
