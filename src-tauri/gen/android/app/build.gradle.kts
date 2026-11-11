@@ -1,3 +1,4 @@
+
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -14,9 +15,19 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use {
+        keystoreProperties.load(it)
+    }
+}
+
 android {
     compileSdk = 37
     namespace = "com.kuwushagra.koai"
+
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.kuwushagra.koai"
@@ -25,12 +36,34 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                    ?: throw GradleException("Missing keyAlias in keystore.properties")
+
+                keyPassword = keystoreProperties.getProperty("password")
+                    ?: throw GradleException("Missing password in keystore.properties")
+
+                storeFile = file(
+                    keystoreProperties.getProperty("storeFile")
+                        ?: throw GradleException("Missing storeFile in keystore.properties")
+                )
+
+                storePassword = keystoreProperties.getProperty("password")
+                    ?: throw GradleException("Missing password in keystore.properties")
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
+
             packaging {
                 jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
                 jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
@@ -38,22 +71,30 @@ android {
                 jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
             }
         }
+
         getByName("release") {
-            optimization {
-               enable = true
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
             }
+
+            optimization {
+                enable = true
+            }
+
             proguardFiles(
                 *fileTree(".") {
-                  include("**/*.pro")
-                  exclude("build/**")
+                    include("**/*.pro")
+                    exclude("build/**")
                 }.files.toTypedArray()
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
+
     buildFeatures {
         buildConfig = true
     }
