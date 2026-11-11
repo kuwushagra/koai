@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           COMMIT_NUMBER=$(git rev-list --count HEAD)
-          APP_VERSION="1.2.${COMMIT_NUMBER}"
+          APP_VERSION="1.1.${COMMIT_NUMBER}"
 
           echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
@@ -69,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Rust targets
+      - name: Install Rust target
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
@@ -103,7 +103,6 @@ jobs:
           args: --target ${{ matrix.target }}
 
   android:
-    needs: publish
     runs-on: ubuntu-22.04
 
     steps:
@@ -142,42 +141,63 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install dependencies
+        run: npm install
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
+          java-version: 17
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
+            ndk;27.2.12479018
+            cmake;3.22.1
 
-      - name: Install Android SDK and NDK
+      - name: Install Rust Android targets
         run: |
-          sdkmanager \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;27.0.12077973"
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            i686-linux-android \
+            x86_64-linux-android
 
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf
 
-      - name: Install dependencies
-        run: npm install
+      - name: Initialize Android project
+        run: npm run tauri android init
 
-      - name: Build and publish Android
-        uses: tauri-apps/tauri-action@v1
+      - name: Build Android APK
+        run: npm run tauri android build -- --apk
+
+      - name: Build Android AAB
+        run: npm run tauri android build -- --aab
+
+      - name: Publish Android artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.app_version }}
+          name: "koai ${{ steps.version.outputs.app_version }}"
+          files: |
+            src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+            src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: v${{ steps.version.outputs.app_version }}
-          releaseName: "koai ${{ steps.version.outputs.app_version }}"
-          releaseBody: "Automated release. See changelog on website."
-          releaseDraft: false
-          prerelease: false
-          mobile: android
-          args: --target aarch64
