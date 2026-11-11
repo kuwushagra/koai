@@ -41,6 +41,8 @@ jobs:
         id: version
         shell: bash
         run: |
+          set -euo pipefail
+
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.2.${COMMIT_NUMBER}"
 
@@ -119,6 +121,8 @@ jobs:
         id: version
         shell: bash
         run: |
+          set -euo pipefail
+
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.2.${COMMIT_NUMBER}"
 
@@ -187,7 +191,7 @@ jobs:
           NDK_INSTALLED=0
 
           for attempt in 1 2 3; do
-            echo "Installing NDK attempt $attempt of 3"
+            echo "Installing Android NDK attempt $attempt of 3"
 
             rm -rf "$NDK_PATH"
             rm -rf "$SDK_ROOT/temp"
@@ -204,7 +208,7 @@ jobs:
             echo "NDK installation attempt $attempt failed."
 
             if [ "$attempt" -lt 3 ]; then
-              sleep 10
+              sleep 15
             fi
           done
 
@@ -251,8 +255,19 @@ jobs:
           java -version
           rustup target list --installed
 
-      - name: Initialize Tauri Android project
-        run: npm run tauri android init
+      - name: Verify generated Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f src-tauri/gen/android/settings.gradle.kts
+          test -f src-tauri/gen/android/app/build.gradle.kts
+          test -f src-tauri/gen/android/app/tauri.build.gradle.kts
+
+          grep -q "signingConfigs" \
+            src-tauri/gen/android/app/build.gradle.kts
+
+          echo "Android project and signing configuration found."
 
       - name: Configure Android release signing
         shell: bash
@@ -292,7 +307,15 @@ jobs:
           chmod 600 keystore.properties
 
       - name: Build Android Release APK
-        run: npm run tauri android build -- --apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm run tauri android build -- \
+            --verbose \
+            --apk \
+            --target aarch64 \
+            --target x86_64
 
       - name: Verify Android Release APK
         shell: bash
@@ -319,6 +342,8 @@ jobs:
             echo "No Android release APK was generated."
             exit 1
           fi
+
+          echo "Verified $APK_COUNT signed APK(s)."
 
       - name: Upload Android Release Artifact
         uses: actions/upload-artifact@v4
