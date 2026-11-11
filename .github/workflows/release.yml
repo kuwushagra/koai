@@ -105,6 +105,7 @@ jobs:
 
   android:
     runs-on: ubuntu-22.04
+    needs: publish
 
     steps:
       - name: Checkout
@@ -209,41 +210,85 @@ jobs:
       - name: Initialize Tauri Android project
         run: npm run tauri android init
 
-      - name: Build Android Debug APK
-        run: npm run tauri android build -- --debug --apk
+      - name: Configure Android release signing
+        shell: bash
+        env:
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
 
-      - name: Verify Android Debug APK
+          : "${ANDROID_KEY_BASE64:?Missing ANDROID_KEY_BASE64 secret}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+
+          ANDROID_DIR="src-tauri/gen/android"
+          KEYSTORE_PATH="$RUNNER_TEMP/koai-release.jks"
+
+          printf '%s' "$ANDROID_KEY_BASE64" \
+            | base64 --decode > "$KEYSTORE_PATH"
+
+          chmod 600 "$KEYSTORE_PATH"
+
+          keytool -list \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$ANDROID_KEY_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            > /dev/null
+
+          cd "$ANDROID_DIR"
+
+          {
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'password=%s\n' "$ANDROID_KEY_PASSWORD"
+            printf 'storeFile=%s\n' "$KEYSTORE_PATH"
+          } > keystore.properties
+
+          chmod 600 keystore.properties
+
+      - name: Build Android Release APK
+        run: npm run tauri android build -- --apk
+
+      - name: Verify Android Release APK
         shell: bash
         run: |
           set -euo pipefail
 
-          APK_PATH="src-tauri/gen/android/app/build/outputs/apk"
+          APK_DIR="src-tauri/gen/android/app/build/outputs/apk"
 
-          find "$APK_PATH" -type f -name "*.apk" -print
+          APK_COUNT=0
 
-          APK_COUNT=$(find "$APK_PATH" -type f -name "*.apk" | wc -l)
+          while IFS= read -r APK; do
+            APK_COUNT=$((APK_COUNT + 1))
+
+            echo "Verifying: $APK"
+
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
+              verify --verbose "$APK"
+
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
+              verify --print-certs "$APK"
+
+          done < <(find "$APK_DIR" -type f -path "*/release/*.apk")
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No Android APK was generated."
+            echo "No Android release APK was generated."
             exit 1
           fi
 
-          while IFS= read -r APK; do
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          done < <(find "$APK_PATH" -type f -name "*.apk")
-
-      - name: Upload Android Debug APK
+      - name: Upload Android Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: koai-android-debug-${{ steps.version.outputs.app_version }}
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          name: koai-android-release-${{ steps.version.outputs.app_version }}
+          path: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
           if-no-files-found: error
 
-      - name: Upload Android Debug APK to release
+      - name: Upload Android Release APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.app_version }}
-          files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          files: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
