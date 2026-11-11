@@ -43,23 +43,15 @@ jobs:
         run: |
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.1.${COMMIT_NUMBER}"
-
-          echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
-
           export APP_VERSION
 
           node -e '
             const fs = require("fs");
             const path = "src-tauri/tauri.conf.json";
             const config = JSON.parse(fs.readFileSync(path, "utf8"));
-
             config.version = process.env.APP_VERSION;
-
-            fs.writeFileSync(
-              path,
-              JSON.stringify(config, null, 2) + "\n"
-            );
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
           '
 
       - name: Setup Node
@@ -67,12 +59,13 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
       - name: Install dependencies
         run: npm install
-
-      - name: Install Rust targets
-        shell: bash
-        run: rustup target add ${{ matrix.target }}
 
       - name: Install Linux dependencies
         if: startsWith(matrix.platform, 'ubuntu-')
@@ -118,23 +111,15 @@ jobs:
         run: |
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.1.${COMMIT_NUMBER}"
-
-          echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
-
           export APP_VERSION
 
           node -e '
             const fs = require("fs");
             const path = "src-tauri/tauri.conf.json";
             const config = JSON.parse(fs.readFileSync(path, "utf8"));
-
             config.version = process.env.APP_VERSION;
-
-            fs.writeFileSync(
-              path,
-              JSON.stringify(config, null, 2) + "\n"
-            );
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
           '
 
       - name: Setup Node
@@ -158,11 +143,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: ''
 
       - name: Install Android SDK packages
-        shell: bash
         run: |
           sdkmanager --install \
             "platform-tools" \
@@ -174,27 +156,43 @@ jobs:
       - name: Configure Android environment
         shell: bash
         run: |
-          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
+          NDK_ROOT="$SDK_ROOT/ndk/27.2.12479018"
 
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$NDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_ROOT" >> "$GITHUB_ENV"
+
+          echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Rust Android linkers
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.cargo"
+
+          cat >> "$HOME/.cargo/config.toml" <<'EOF'
+          [target.aarch64-linux-android]
+          linker = "aarch64-linux-android35-clang"
+
+          [target.x86_64-linux-android]
+          linker = "x86_64-linux-android35-clang"
+          EOF
 
       - name: Verify Android environment
         shell: bash
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           echo "NDK_HOME=$NDK_HOME"
 
-          test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/platform-tools"
           test -d "$ANDROID_HOME/platforms/android-35"
-          test -d "$ANDROID_HOME/build-tools/35.0.0"
-          test -d "$ANDROID_HOME/ndk/27.2.12479018"
-          test -d "$ANDROID_HOME/cmake/3.22.1"
+          test -d "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
+          aarch64-linux-android35-clang --version
           sdkmanager --version
+          rustc --version
+          cargo --version
 
       - name: Initialize Tauri Android project
         run: npm run tauri android init
