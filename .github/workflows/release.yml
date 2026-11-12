@@ -117,6 +117,11 @@ jobs:
     outputs:
       app_version: ${{ steps.version.outputs.app_version }}
 
+    env:
+      CARGO_BUILD_JOBS: "1"
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: full
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -270,10 +275,10 @@ jobs:
           settings = {
               "org.gradle.configuration-cache": "false",
               "org.gradle.parallel": "false",
-              "org.gradle.workers.max": "2",
+              "org.gradle.workers.max": "1",
               "org.gradle.daemon": "false",
               "org.gradle.caching": "false",
-              "org.gradle.jvmargs": "-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+              "org.gradle.jvmargs": "-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8",
           }
 
           for key in settings:
@@ -335,16 +340,23 @@ jobs:
         env:
           RUST_BACKTRACE: full
           CARGO_TERM_VERBOSE: "true"
+          CARGO_BUILD_JOBS: "1"
           CARGO_INCREMENTAL: "0"
           GRADLE_OPTS: "-Dorg.gradle.logging.level=info -Dorg.gradle.logging.stacktrace=all"
         run: |
           set -euxo pipefail
 
           echo "Starting Android release build..."
+          echo "Cargo jobs: $CARGO_BUILD_JOBS"
 
           npm run tauri android build -- \
             --apk \
-            --verbose
+            --verbose \
+            -- \
+            --stacktrace \
+            --info \
+            --no-daemon \
+            --max-workers=1
 
       - name: Verify Android Release APK
         shell: bash
