@@ -1,0 +1,13 @@
+
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-capability",
+  "description": "Android permissions for koai",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": [
+    "dialog:default",
+    "android-installer:default",
+    "upload:default"
+  ]
+}

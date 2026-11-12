@@ -22,6 +22,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
+    #[cfg(target_os = "android")]
+    let builder = builder
+        .plugin(tauri_plugin_upload::init())
+        .plugin(tauri_plugin_android_installer::init());
+
     #[cfg(not(target_os = "ios"))]
     let builder = builder
         .manage(TerminalState::default())
