@@ -2495,7 +2495,7 @@ if (!rootDirectory) {
               <div className="dropdown-divider" />
 
               {renderDropdownItem(
-                "Close with save",
+                "Save & Close",
                 () => {
                   if (currentFile) {
                     void closeFile(currentFile.path, true);
@@ -2509,7 +2509,7 @@ if (!rootDirectory) {
               )}
 
               {renderDropdownItem(
-                "Close without save",
+                "Don't Save & Close",
                 () => {
                   if (currentFile) {
                     void closeFile(currentFile.path, false);
