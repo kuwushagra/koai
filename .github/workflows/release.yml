@@ -196,8 +196,8 @@ jobs:
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/cmdline-tools"
           test -d "$ANDROID_HOME/platform-tools"
-          test -d "$ANDROID_HOME/platforms/android-35"
-          test -d "$ANDROID_HOME/build-tools/35.0.0"
+          test -d "$ANDROID_HOME/platforms/android-36"
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
           test -d "$ANDROID_HOME/ndk/27.2.12479018"
           test -d "$ANDROID_HOME/cmake/3.22.1"
 
@@ -256,6 +256,7 @@ jobs:
           set -euo pipefail
 
           APK_PATH="src-tauri/gen/android/app/build/outputs/apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
 
           APK_COUNT=0
 
@@ -266,13 +267,11 @@ jobs:
 
             echo "Verifying: $APK"
 
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
-              verify --verbose "$APK"
+            "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
 
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
-              verify --print-certs "$APK"
+            "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
 
-            cp "$APK" "android-release/koai-arm64.apk"
+            cp "$APK" android-release/koai-android.apk
 
           done < <(find "$APK_PATH" -type f -path "*/release/*.apk")
 
@@ -281,18 +280,26 @@ jobs:
             exit 1
           fi
 
-      - name: Upload Android Release APK
+          if [ "$APK_COUNT" -gt 1 ]; then
+            echo "Multiple APKs found. Refusing ambiguous release upload."
+            exit 1
+          fi
+
+          echo "Android APK ready:"
+          ls -lh android-release/
+
+      - name: Upload Android Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: koai-android-release-${{ steps.version.outputs.app_version }}
-          path: android-release/*.apk
+          path: android-release/koai-android.apk
           if-no-files-found: error
 
       - name: Upload Android Release APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.app_version }}
-          files: android-release/*.apk
+          files: android-release/koai-android.apk
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
