@@ -1,3 +1,4 @@
+
 mod ai;
 mod commands;
 
@@ -15,39 +16,41 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init());
 
-    // Desktop-only plugins
+    // Desktop-only plugins:
+    // Windows, Linux and macOS
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
-    // Android and desktop
+    // Android and desktop:
+    // Terminal state and commands
     #[cfg(not(target_os = "ios"))]
-    let builder =
-        builder
-            .manage(TerminalState::default())
-            .invoke_handler(tauri::generate_handler![
-                ai::ai_chat,
-                ai::setup_master_password,
-                ai::unlock_ai_settings,
-                ai::lock_ai_settings,
-                ai::is_ai_unlocked,
-                ai::has_ai_settings,
-                ai::save_ai_settings,
-                ai::get_ai_settings,
-                read_file,
-                write_file,
-                list_directory,
-                create_entry,
-                rename_entry,
-                delete_entry,
-                parent_directory,
-                terminal::terminal_spawn,
-                terminal::terminal_write,
-                terminal::terminal_resize,
-                terminal::terminal_close
-            ]);
+    let builder = builder
+        .manage(TerminalState::default())
+        .invoke_handler(tauri::generate_handler![
+            ai::ai_chat,
+            ai::setup_master_password,
+            ai::unlock_ai_settings,
+            ai::lock_ai_settings,
+            ai::is_ai_unlocked,
+            ai::has_ai_settings,
+            ai::save_ai_settings,
+            ai::get_ai_settings,
+            read_file,
+            write_file,
+            list_directory,
+            create_entry,
+            rename_entry,
+            delete_entry,
+            parent_directory,
+            terminal::terminal_spawn,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_close
+        ]);
 
+    // iOS-only commands
     #[cfg(target_os = "ios")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         ai::ai_chat,
