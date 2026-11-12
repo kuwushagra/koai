@@ -1,5 +1,12 @@
 import { getVersion } from "@tauri-apps/api/app";
 
+import { platform } from "@tauri-apps/plugin-os";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import semver from "semver";
+
+const GITHUB_OWNER = "kuwushagra";
+const GITHUB_REPO = "koai";
+
 import {
   open,
   save,
@@ -1382,81 +1389,151 @@ function App() {
     }
   };
 
+const checkForUpdates = async () => {
+  setActiveMenu(null);
 
+  let update: Awaited<ReturnType<typeof check>> = null;
 
-  const checkForUpdates = async () => {
-    setActiveMenu(null);
+  try {
+    showToast("Checking for updates...");
 
-    let update: Awaited<ReturnType<typeof check>> = null;
+    if (platform() === "android") {
+      const currentVersion = await getVersion();
 
-    try {
-      showToast("Checking for updates...");
+      const response = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+        {
+          headers: {
+            Accept: "application/vnd.github+json"
+          }
+        }
+      );
 
-      update = await check();
+      if (!response.ok) {
+        throw new Error(
+          `GitHub API error: ${response.status}`
+        );
+      }
 
-      if (!update) {
+      const release = await response.json();
+
+      const latestVersion = release.tag_name.replace(/^v/, "");
+
+      if (!semver.valid(latestVersion)) {
+        throw new Error("Invalid release version");
+      }
+
+      if (!semver.gt(latestVersion, currentVersion)) {
         showToast("koai is already up to date!");
         return;
       }
 
+      const apk = release.assets.find(
+        (asset: { name: string }) =>
+          asset.name.toLowerCase().endsWith(".apk")
+      );
+
+      if (!apk) {
+        throw new Error("No APK found in the latest GitHub release");
+      }
+
       const confirmed = await confirm(
         `A new version of koai is available!\n\n` +
-        `Current version: ${update.currentVersion}\n` +
-        `New version: ${update.version}\n\n` +
-        `Release notes:\n${update.body || "No release notes available."}\n\n` +
-        `Would you like to download and install it?`,
+        `Current version: ${currentVersion}\n` +
+        `New version: ${latestVersion}\n\n` +
+        `Release notes:\n${release.body || "No release notes available."}\n\n` +
+        `Would you like to download the update?`,
         {
           title: "koai Update Available",
           kind: "info",
-          okLabel: "Download & Install",
+          okLabel: "Download APK",
           cancelLabel: "Cancel"
         }
       );
 
       if (!confirmed) {
-        await update.close();
         showToast("Update cancelled");
         return;
       }
 
-      showToast(`Downloading koai ${update.version}...`);
+      showToast(`Opening koai ${latestVersion} download...`);
 
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            showToast("Update download started...");
-            break;
+      await openUrl(apk.browser_download_url);
 
-          case "Progress":
-            console.log(
-              "Downloaded chunk:",
-              event.data.chunkLength
-            );
-            break;
+      showToast(
+        "APK download opened. Install the downloaded update to continue."
+      );
 
-          case "Finished":
-            showToast("Download complete. Installing...");
-            break;
-        }
-      });
-
-      showToast("Update installed. Restarting koai...");
-
-      await relaunch();
-
-    } catch (error) {
-      console.error("Updater error:", error);
-
-      if (update) {
-        try {
-          await update.close();
-        } catch {
-        }
-      }
-
-      showToast(`Update failed: ${normalizeError(error)}`);
+      return;
     }
-  };
+
+    // Windows / Linux / macOS
+
+    update = await check();
+
+    if (!update) {
+      showToast("koai is already up to date!");
+      return;
+    }
+
+    const confirmed = await confirm(
+      `A new version of koai is available!\n\n` +
+      `Current version: ${update.currentVersion}\n` +
+      `New version: ${update.version}\n\n` +
+      `Release notes:\n${update.body || "No release notes available."}\n\n` +
+      `Would you like to download and install it?`,
+      {
+        title: "koai Update Available",
+        kind: "info",
+        okLabel: "Download & Install",
+        cancelLabel: "Cancel"
+      }
+    );
+
+    if (!confirmed) {
+      await update.close();
+      showToast("Update cancelled");
+      return;
+    }
+
+    showToast(`Downloading koai ${update.version}...`);
+
+    await update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          showToast("Update download started...");
+          break;
+
+        case "Progress":
+          console.log(
+            "Downloaded chunk:",
+            event.data.chunkLength
+          );
+          break;
+
+        case "Finished":
+          showToast("Download complete. Installing...");
+          break;
+      }
+    });
+
+    showToast("Update installed. Restarting koai...");
+
+    await relaunch();
+
+  } catch (error) {
+    console.error("Updater error:", error);
+
+    if (update) {
+      try {
+        await update.close();
+      } catch {
+      }
+    }
+
+    showToast(`Update failed: ${normalizeError(error)}`);
+  }
+};
 
   const changeTheme = (name: ThemeName) => {
     setThemeName(name);
