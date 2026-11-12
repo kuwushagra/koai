@@ -115,7 +115,7 @@ jobs:
       CARGO_INCREMENTAL: "0"
       CARGO_TERM_VERBOSE: "true"
       RUST_BACKTRACE: full
-      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1"
+      GRADLE_OPTS: "-Xmx3g -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1"
 
     steps:
       - name: Checkout
@@ -184,6 +184,12 @@ jobs:
           set -euo pipefail
 
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK not found."
+            exit 1
+          fi
+
           NDK_PATH="$SDK_ROOT/ndk/27.2.12479018"
 
           if [ ! -d "$NDK_PATH" ]; then
@@ -200,14 +206,7 @@ jobs:
 
           NDK_BIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
-          if [ ! -x "$NDK_BIN/aarch64-linux-android24-clang" ]; then
-            echo "ARM64 Android compiler not found."
-            exit 1
-          fi
-
-          echo "Android SDK: $SDK_ROOT"
-          echo "Android NDK: $NDK_PATH"
-          echo "ARM64 compiler verified."
+          test -x "$NDK_BIN/aarch64-linux-android24-clang"
 
           rustc --version
           cargo --version
@@ -216,48 +215,7 @@ jobs:
       - name: Initialize Tauri Android project
         run: npm run tauri android init
 
-      - name: Configure Gradle
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          GRADLE_PROPERTIES="src-tauri/gen/android/gradle.properties"
-
-          python3 - "$GRADLE_PROPERTIES" <<'PY'
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-
-          existing = (
-              path.read_text().splitlines()
-              if path.exists()
-              else []
-          )
-
-          settings = {
-              "org.gradle.configuration-cache": "false",
-              "org.gradle.parallel": "false",
-              "org.gradle.workers.max": "1",
-              "org.gradle.daemon": "false",
-              "org.gradle.caching": "false",
-              "org.gradle.logging.level": "info",
-              "org.gradle.jvmargs": "-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8",
-          }
-
-          for key in settings:
-              existing = [
-                  line for line in existing
-                  if not line.strip().startswith(key + "=")
-              ]
-
-          for key, value in settings.items():
-              existing.append(f"{key}={value}")
-
-          path.write_text("\n".join(existing) + "\n")
-          PY
-
-      - name: Configure Android release signing
+      - name: Configure Android signing
         shell: bash
         env:
           ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
@@ -271,7 +229,10 @@ jobs:
           : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
 
           ANDROID_DIR="src-tauri/gen/android"
+          APP_GRADLE="$ANDROID_DIR/app/build.gradle.kts"
           KEYSTORE_PATH="$RUNNER_TEMP/koai-release.jks"
+
+          test -f "$APP_GRADLE"
 
           printf '%s' "$ANDROID_KEY_BASE64" \
             | base64 --decode > "$KEYSTORE_PATH"
@@ -302,46 +263,47 @@ jobs:
           path = Path(sys.argv[1])
           source = path.read_text()
 
-          imports = [
+          for statement in (
               "import java.io.FileInputStream",
               "import java.util.Properties",
-          ]
-
-          for statement in imports:
+          ):
               if statement not in source:
                   source = statement + "\n" + source
 
-          signing_block = '''
-              signingConfigs {
-                  create("release") {
-                      val keystorePropertiesFile = rootProject.file("keystore.properties")
-                      val keystoreProperties = Properties()
+          if "create(\"release\")" not in source:
+              signing_config = '''
+          signingConfigs {
+              create("release") {
+                  val keystorePropertiesFile = rootProject.file("keystore.properties")
+                  val keystoreProperties = Properties()
 
-                      if (!keystorePropertiesFile.exists()) {
-                          throw GradleException("Release keystore properties not found")
-                      }
-
-                      keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-
-                      keyAlias = keystoreProperties["keyAlias"] as String
-                      keyPassword = keystoreProperties["password"] as String
-                      storeFile = file(keystoreProperties["storeFile"] as String)
-                      storePassword = keystoreProperties["password"] as String
+                  if (!keystorePropertiesFile.exists()) {
+                      throw GradleException("Missing keystore.properties")
                   }
+
+                  keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+
+                  keyAlias = keystoreProperties["keyAlias"] as String
+                  keyPassword = keystoreProperties["password"] as String
+                  storeFile = file(keystoreProperties["storeFile"] as String)
+                  storePassword = keystoreProperties["password"] as String
               }
+          }
 
           '''
 
-          if "signingConfigs {" not in source:
-              match = re.search(r'(?m)^(\s*)buildTypes\s*\{', source)
+              match = re.search(r'(?m)^buildTypes\s*\{', source)
 
               if not match:
                   raise SystemExit("Could not find buildTypes block.")
 
-              source = source[:match.start()] + signing_block + source[match.start():]
+              source = source[:match.start()] + signing_config + source[match.start():]
 
           if 'signingConfig = signingConfigs.getByName("release")' not in source:
-              match = re.search(r'(?m)^(\s*)getByName\("release"\)\s*\{', source)
+              match = re.search(
+                  r'(?m)^(\s*)getByName\("release"\)\s*\{',
+                  source
+              )
 
               if not match:
                   raise SystemExit("Could not find release build type.")
@@ -358,7 +320,7 @@ jobs:
               source = source[:match.start()] + insertion + source[match.end():]
 
           path.write_text(source)
-          print("Release signing configured.")
+          print("Android signing configured.")
           PY
 
       - name: Build Android ARM64 APK
@@ -366,13 +328,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Building Android APK using Tauri CLI."
-          echo "Target: aarch64-linux-android"
-
           npm run tauri android build -- \
             --apk \
             --target aarch64 \
             --verbose
+
+      - name: Diagnose Gradle failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          cd src-tauri/gen/android
+
+          echo "Running Gradle release diagnostics..."
+
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            --info \
+            :app:assembleRelease
+
+          RESULT=$?
+
+          echo "Gradle diagnostic exit code: $RESULT"
+
+          exit 0
 
       - name: Verify Android APK
         shell: bash
