@@ -25,7 +25,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    compileSdk = 36
+    compileSdk = 35
     namespace = "com.kuwushagra.koai"
 
     defaultConfig {
