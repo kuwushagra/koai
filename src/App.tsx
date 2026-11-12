@@ -1,7 +1,14 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
+//import { openUrl } from "@tauri-apps/plugin-opener";
 import semver from "semver";
 import { readTextFile } from "@tauri-apps/plugin-fs";
+import { download } from "@tauri-apps/plugin-upload";
+import { appCacheDir, join } from "@tauri-apps/api/path";
+import {
+  install,
+  canInstall,
+  requestInstallPermission,
+} from "tauri-plugin-android-installer-api";
 
 const GITHUB_OWNER = "kuwushagra";
 const GITHUB_REPO = "koai";
@@ -798,28 +805,63 @@ function App() {
     [openFiles, showToast]
   );
 
-  const openSingleFile = useCallback(async () => {
+const openSingleFile = useCallback(async () => {
   try {
     const selected = await open({
       directory: false,
       multiple: false,
+      title: "Open File",
     });
 
     if (!selected || Array.isArray(selected)) return;
 
     if (isAndroid) {
-      const workspace = rootDirectory ||
-        await invoke<string>("get_android_workspace");
+      const content = await readTextFile(selected);
 
       const decoded = decodeURIComponent(selected);
 
-      const name =
-        decoded.split("/").pop()?.split(":").pop()?.split("?")[0]
-        || "untitled.txt";
+      const originalName =
+        decoded
+          .split("/")
+          .pop()
+          ?.split(":")
+          .pop()
+          ?.split("?")[0] || "untitled.txt";
 
-      const content = await readTextFile(selected);
+      const name = originalName.replace(/[\\/]/g, "_");
 
-      const destination = joinPath(workspace, name);
+      const workspace = rootDirectory ||
+        await invoke<string>("get_android_workspace");
+
+      let destinationName = name;
+
+      try {
+        await invoke("create_entry", {
+          directory: workspace,
+          name: destinationName,
+          isDirectory: false,
+        });
+      } catch {
+        const extensionIndex = name.lastIndexOf(".");
+        const baseName = extensionIndex > 0
+          ? name.slice(0, extensionIndex)
+          : name;
+
+        const extension = extensionIndex > 0
+          ? name.slice(extensionIndex)
+          : "";
+
+        destinationName =
+          `${baseName}-${Date.now()}${extension}`;
+
+        await invoke("create_entry", {
+          directory: workspace,
+          name: destinationName,
+          isDirectory: false,
+        });
+      }
+
+      const destination = joinPath(workspace, destinationName);
 
       await invoke("write_file", {
         path: destination,
@@ -827,9 +869,10 @@ function App() {
       });
 
       if (!rootDirectory) {
-        const entries = await invoke<FileEntry[]>("list_directory", {
-          path: workspace,
-        });
+        const entries = await invoke<FileEntry[]>(
+          "list_directory",
+          { path: workspace }
+        );
 
         setRootDirectory(workspace);
         setDirectoryContents({
@@ -840,9 +883,10 @@ function App() {
         await loadDirectory(workspace);
       }
 
-      await openFile(destination, name);
+      await openFile(destination, destinationName);
+
       setActiveMenu(null);
-      showToast("File imported successfully");
+      showToast("External file imported successfully");
       return;
     }
 
@@ -1489,74 +1533,102 @@ if (!rootDirectory) {
       const isAndroid = /android/i.test(navigator.userAgent);
 
       if (isAndroid) {
-        const currentVersion = await getVersion();
+  const currentVersion = await getVersion();
 
-        const response = await fetch(
-          `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-          {
-            headers: {
-              Accept: "application/vnd.github+json"
-            }
-          }
+  const response = await fetch(
+    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`GitHub API error: ${response.status}`);
+  }
+
+  const release = await response.json();
+
+  const latestVersion = release.tag_name.replace(/^v/, "");
+
+  if (!semver.valid(latestVersion)) {
+    throw new Error("Invalid release version");
+  }
+
+  if (!semver.gt(latestVersion, currentVersion)) {
+    showToast("koai is already up to date!");
+    return;
+  }
+
+  const apk = release.assets.find(
+    (asset: { name: string }) =>
+      asset.name.toLowerCase().endsWith(".apk")
+  );
+
+  if (!apk) {
+    throw new Error("No APK found in the latest GitHub release");
+  }
+
+  const confirmed = await confirm(
+    `A new version of koai is available!\n\n` +
+    `Current version: ${currentVersion}\n` +
+    `New version: ${latestVersion}\n\n` +
+    `Release notes:\n${release.body || "No release notes available."}\n\n` +
+    `Would you like to download and install it?`,
+    {
+      title: "koai Update Available",
+      kind: "info",
+      okLabel: "Download & Install",
+      cancelLabel: "Cancel",
+    }
+  );
+
+  if (!confirmed) {
+    showToast("Update cancelled");
+    return;
+  }
+
+  const apkPath = await join(
+    await appCacheDir(),
+    `koai-${latestVersion}.apk`
+  );
+
+  showToast("Downloading koai update...");
+
+  await download(
+    apk.browser_download_url,
+    apkPath,
+    ({ progressTotal, total }) => {
+      if (total > 0) {
+        const percentage = Math.floor(
+          (progressTotal / total) * 100
         );
 
-        if (!response.ok) {
-          throw new Error(
-            `GitHub API error: ${response.status}`
-          );
-        }
-
-        const release = await response.json();
-
-        const latestVersion = release.tag_name.replace(/^v/, "");
-
-        if (!semver.valid(latestVersion)) {
-          throw new Error("Invalid release version");
-        }
-
-        if (!semver.gt(latestVersion, currentVersion)) {
-          showToast("koai is already up to date!");
-          return;
-        }
-
-        const apk = release.assets.find(
-          (asset: { name: string }) =>
-            asset.name.toLowerCase().endsWith(".apk")
-        );
-
-        if (!apk) {
-          throw new Error("No APK found in the latest GitHub release");
-        }
-
-        const confirmed = await confirm(
-          `A new version of koai is available!\n\n` +
-          `Current version: ${currentVersion}\n` +
-          `New version: ${latestVersion}\n\n` +
-          `Release notes:\n${release.body || "No release notes available."}\n\n` +
-          `Would you like to download the update?`,
-          {
-            title: "koai Update Available",
-            kind: "info",
-            okLabel: "Download APK",
-            cancelLabel: "Cancel"
-          }
-        );
-
-        if (!confirmed) {
-          showToast("Update cancelled");
-          return;
-        }
-
-        showToast(`Opening koai ${latestVersion} download...`);
-
-        await openUrl(apk.browser_download_url);
-
-        showToast(
-  "Download the APK and open it from Downloads to install the update."
-);
-
-        return;
+        showToast(`Downloading koai update: ${percentage}%`);
+      } else {
+        showToast("Downloading koai update...");
       }
+    }
+  );
+
+  showToast("Download complete. Preparing installer...");
+
+  if (!(await canInstall())) {
+    await requestInstallPermission();
+
+    if (!(await canInstall())) {
+      showToast("Installation permission was not granted.");
+      return;
+    }
+  }
+
+  await install(apkPath);
+
+  showToast("Android installer opened. Approve the update to continue.");
+
+  return;
+}
 
       // Windows / Linux / macOS
 
