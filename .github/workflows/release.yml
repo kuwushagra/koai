@@ -77,7 +77,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Rust targets
+      - name: Install Rust target
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
@@ -85,6 +85,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             build-essential \
@@ -160,19 +161,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # IMPORTANT:
-      # Tauri Android builds support four architectures.
-      # Install all four Rust targets to prevent missing
-      # Android linker/compiler target errors.
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: >-
-            aarch64-linux-android,
-            armv7-linux-androideabi,
-            i686-linux-android,
-            x86_64-linux-android
+          targets: aarch64-linux-android
 
       - name: Install dependencies
         run: npm install
@@ -201,14 +193,14 @@ jobs:
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 
           if [ -z "$SDK_ROOT" ]; then
-            echo "Android SDK was not found."
+            echo "Android SDK not found."
             exit 1
           fi
 
           NDK_PATH="$SDK_ROOT/ndk/27.2.12479018"
 
           if [ ! -d "$NDK_PATH" ]; then
-            echo "Android NDK was not found: $NDK_PATH"
+            echo "Android NDK not found: $NDK_PATH"
             exit 1
           fi
 
@@ -217,35 +209,23 @@ jobs:
           echo "NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
 
-      - name: Verify Android toolchains
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+
+      - name: Verify Android environment
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
 
           echo "Android SDK: $ANDROID_HOME"
-          echo "Android NDK: $NDK_HOME"
-
-          NDK_BIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-
-          for COMPILER in \
-            aarch64-linux-android24-clang \
-            armv7a-linux-androideabi24-clang \
-            i686-linux-android24-clang \
-            x86_64-linux-android24-clang
-          do
-            if [ ! -x "$NDK_BIN/$COMPILER" ]; then
-              echo "Missing Android compiler: $COMPILER"
-              exit 1
-            fi
-
-            echo "Found compiler: $COMPILER"
-          done
+          echo "Android NDK: $ANDROID_NDK_HOME"
 
           rustup target list --installed
 
           rustc --version
           cargo --version
           java -version
+
+          test -x "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
 
       - name: Initialize Tauri Android project
         run: npm run tauri android init
@@ -287,21 +267,19 @@ jobs:
 
           chmod 600 keystore.properties
 
-      # Explicitly build all four supported Android architectures.
-      # This avoids Tauri attempting to compile targets that were
-      # not installed in the Rust toolchain.
-
       - name: Build Android Release APK
         shell: bash
+        env:
+          RUST_BACKTRACE: full
+          CARGO_TERM_VERBOSE: "true"
+          GRADLE_OPTS: "-Dorg.gradle.logging.stacktrace=all -Dorg.gradle.logging.level=info"
         run: |
-          set -euo pipefail
+          set -euxo pipefail
 
           npm run tauri android build -- \
             --apk \
             --target aarch64 \
-            --target armv7 \
-            --target i686 \
-            --target x86_64
+            --verbose
 
       - name: Verify Android Release APK
         shell: bash
@@ -309,17 +287,18 @@ jobs:
           set -euo pipefail
 
           APK_DIR="src-tauri/gen/android/app/build/outputs/apk"
-          APK_COUNT=0
 
           if [ ! -d "$APK_DIR" ]; then
-            echo "APK output directory does not exist."
+            echo "APK output directory not found."
             exit 1
           fi
+
+          APK_COUNT=0
 
           while IFS= read -r APK; do
             APK_COUNT=$((APK_COUNT + 1))
 
-            echo "Verifying: $APK"
+            echo "Verifying $APK"
 
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
               verify --verbose "$APK"
@@ -330,11 +309,11 @@ jobs:
           done < <(find "$APK_DIR" -type f -path "*/release/*.apk")
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No Android release APK was generated."
+            echo "No release APK generated."
             exit 1
           fi
 
-          echo "Successfully verified $APK_COUNT APK file(s)."
+          echo "Successfully verified $APK_COUNT APK(s)."
 
       - name: Upload Android Release Artifact
         uses: actions/upload-artifact@v4
@@ -357,20 +336,6 @@ jobs:
         with:
           name: koai-android-release-${{ needs.android.outputs.app_version }}
           path: android-release
-
-      - name: Verify downloaded APK files
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          find android-release -type f -name "*.apk" -print
-
-          APK_COUNT=$(find android-release -type f -name "*.apk" | wc -l)
-
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No Android APK files were downloaded."
-            exit 1
-          fi
 
       - name: Upload Android APK to GitHub Release
         uses: softprops/action-gh-release@v2
