@@ -278,6 +278,7 @@ jobs:
               "org.gradle.workers.max": "1",
               "org.gradle.daemon": "false",
               "org.gradle.caching": "false",
+              "org.gradle.logging.level": "info",
               "org.gradle.jvmargs": "-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8",
           }
 
@@ -342,7 +343,7 @@ jobs:
           CARGO_TERM_VERBOSE: "true"
           CARGO_BUILD_JOBS: "1"
           CARGO_INCREMENTAL: "0"
-          GRADLE_OPTS: "-Dorg.gradle.logging.level=info -Dorg.gradle.logging.stacktrace=all"
+          GRADLE_OPTS: "-Dorg.gradle.logging.level=info"
         run: |
           set -euxo pipefail
 
@@ -351,12 +352,7 @@ jobs:
 
           npm run tauri android build -- \
             --apk \
-            --verbose \
-            -- \
-            --stacktrace \
-            --info \
-            --no-daemon \
-            --max-workers=1
+            --verbose
 
       - name: Verify Android Release APK
         shell: bash
