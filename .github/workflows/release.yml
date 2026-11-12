@@ -18,19 +18,14 @@ jobs:
         include:
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-
           - platform: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-
           - platform: windows-11-arm
             target: aarch64-pc-windows-msvc
-
           - platform: macos-latest
             target: aarch64-apple-darwin
-
           - platform: macos-15-intel
             target: x86_64-apple-darwin
 
@@ -42,18 +37,37 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Generate application version
+        id: version
+        shell: bash
+        run: |
+          COMMIT_NUMBER=$(git rev-list --count HEAD)
+          APP_VERSION="1.2.${COMMIT_NUMBER}"
+
+          echo "Generated version: $APP_VERSION"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+
+          export APP_VERSION
+
+          node -e '
+            const fs = require("fs");
+            const path = "src-tauri/tauri.conf.json";
+            const config = JSON.parse(fs.readFileSync(path, "utf8"));
+            config.version = process.env.APP_VERSION;
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+          '
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+          node-version: 22
 
       - name: Install dependencies
         run: npm install
+
+      - name: Install Rust targets
+        shell: bash
+        run: rustup target add ${{ matrix.target }}
 
       - name: Install Linux dependencies
         if: startsWith(matrix.platform, 'ubuntu-')
@@ -77,8 +91,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.2.0' }}
-          releaseName: "koai ${{ github.ref_type == 'tag' && github.ref_name || 'v1.2.0' }}"
+          tagName: v${{ steps.version.outputs.app_version }}
+          releaseName: "koai ${{ steps.version.outputs.app_version }}"
           releaseBody: "Automated release. See changelog on website."
           releaseDraft: false
           prerelease: false
@@ -86,12 +100,7 @@ jobs:
 
   android:
     runs-on: ubuntu-22.04
-
-    env:
-      CARGO_BUILD_JOBS: "2"
-      CARGO_INCREMENTAL: "0"
-      RUST_BACKTRACE: "1"
-      GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=2"
+    needs: publish
 
     steps:
       - name: Checkout
@@ -99,27 +108,49 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Generate application version
+        id: version
+        shell: bash
+        run: |
+          COMMIT_NUMBER=$(git rev-list --count HEAD)
+          APP_VERSION="1.2.${COMMIT_NUMBER}"
+
+          echo "Generated version: $APP_VERSION"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+
+          export APP_VERSION
+
+          node -e '
+            const fs = require("fs");
+            const path = "src-tauri/tauri.conf.json";
+            const config = JSON.parse(fs.readFileSync(path, "utf8"));
+            config.version = process.env.APP_VERSION;
+            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+          '
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
-
-      - name: Install dependencies
-        run: npm install
+          node-version: 22
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: 17
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
 
+      - name: Install dependencies
+        run: npm install
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
         shell: bash
@@ -127,56 +158,24 @@ jobs:
           set -euo pipefail
 
           sdkmanager --install \
-            "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;27.2.12479018" \
             "cmake;3.22.1"
-
-          yes | sdkmanager --licenses >/dev/null || true
 
       - name: Configure Android environment
         shell: bash
         run: |
           set -euo pipefail
 
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
 
-          if [ -z "$SDK_ROOT" ]; then
-            echo "::error::Android SDK not found."
-            exit 1
-          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
-          NDK_PATH="$SDK_ROOT/ndk/27.2.12479018"
-
-          if [ ! -d "$NDK_PATH" ]; then
-            echo "::error::Android NDK not found."
-            exit 1
-          fi
-
-          {
-            echo "ANDROID_HOME=$SDK_ROOT"
-            echo "ANDROID_SDK_ROOT=$SDK_ROOT"
-            echo "NDK_HOME=$NDK_PATH"
-            echo "ANDROID_NDK_HOME=$NDK_PATH"
-          } >> "$GITHUB_ENV"
-
-          test -x "$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-
-          rustc --version
-          cargo --version
-          java -version
-
-      - name: Verify Android project
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test -f src-tauri/gen/android/settings.gradle
-          test -f src-tauri/gen/android/app/build.gradle.kts
-          test -f src-tauri/gen/android/app/tauri.build.gradle.kts
-          
-      - name: Configure Android signing
+      - name: Configure Android release signing
         shell: bash
         env:
           ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
@@ -185,21 +184,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          : "${ANDROID_KEY_BASE64:?Missing ANDROID_KEY_BASE64}"
-          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS}"
-          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
+          : "${ANDROID_KEY_BASE64:?Missing ANDROID_KEY_BASE64 secret}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
 
           ANDROID_DIR="src-tauri/gen/android"
           KEYSTORE_PATH="$RUNNER_TEMP/koai-release.jks"
 
-          printf '%s' "$ANDROID_KEY_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -f "$ANDROID_DIR/app/build.gradle.kts"
+          test -f "$ANDROID_DIR/app/tauri.build.gradle.kts"
+
+          printf '%s' "$ANDROID_KEY_BASE64" \
+            | base64 --decode > "$KEYSTORE_PATH"
 
           chmod 600 "$KEYSTORE_PATH"
 
           keytool -list \
             -keystore "$KEYSTORE_PATH" \
             -storepass "$ANDROID_KEY_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+            -alias "$ANDROID_KEY_ALIAS" \
+            > /dev/null
 
           {
             printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
@@ -209,107 +213,52 @@ jobs:
 
           chmod 600 "$ANDROID_DIR/keystore.properties"
 
-      - name: Build Android ARM64 APK
-        shell: bash
-        run: |
-          set -euo pipefail
+      - name: Build Android Release APK
+        run: npm run tauri android build -- --apk --target aarch64
 
-          npm run tauri android build -- \
-            --apk \
-            --target aarch64 \
-            --verbose
-
-      - name: Verify Android APK
+      - name: Verify Android Release APK
         shell: bash
         run: |
           set -euo pipefail
 
           APK_DIR="src-tauri/gen/android/app/build/outputs/apk"
 
-          if [ ! -d "$APK_DIR" ]; then
-            echo "::error::APK output directory not found."
-            find src-tauri/gen/android/app/build/outputs -type f || true
-            exit 1
-          fi
+          APK_COUNT=0
 
           mkdir -p android-release
-
-          APK_COUNT=0
 
           while IFS= read -r -d '' APK; do
             APK_COUNT=$((APK_COUNT + 1))
 
-            echo "Verifying $APK"
+            echo "Verifying: $APK"
 
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
               verify --verbose "$APK"
 
-            cp "$APK" "android-release/koai-arm64-${APK_COUNT}.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
+              verify --print-certs "$APK"
 
-          done < <(find "$APK_DIR" -type f -name "*.apk" -print0)
+            cp "$APK" "android-release/koai-arm64.apk"
+
+          done < <(find "$APK_DIR" -type f -path "*/release/*.apk" -print0)
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "::error::No APK files generated."
+            echo "No Android release APK was generated."
             exit 1
           fi
 
-          ls -lh android-release/
-
-      - name: Upload Android Release Artifact
+      - name: Upload Android Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: koai-android-release
+          name: koai-android-release-${{ steps.version.outputs.app_version }}
           path: android-release/*.apk
           if-no-files-found: error
-          retention-days: 30
 
-      - name: Upload Android build diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: koai-android-diagnostics-${{ github.run_id }}
-          path: |
-            src-tauri/gen/android/build/reports/
-            src-tauri/gen/android/build/tmp/
-            src-tauri/gen/android/app/build/reports/
-            src-tauri/gen/android/app/build/outputs/logs/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  android-release:
-    runs-on: ubuntu-22.04
-
-    needs:
-      - publish
-      - android
-
-    steps:
-      - name: Download Android Release Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: koai-android-release
-          path: android-release
-
-      - name: Verify downloaded APK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APK_COUNT=$(find android-release -type f -name "*.apk" | wc -l)
-
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "::error::No Android APK downloaded."
-            exit 1
-          fi
-
-          find android-release -type f -name "*.apk" -print
-
-      - name: Upload Android APK to GitHub Release
+      - name: Upload Android Release APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.2.0' }}
+          tag_name: v${{ steps.version.outputs.app_version }}
           files: android-release/*.apk
           fail_on_unmatched_files: true
-          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
