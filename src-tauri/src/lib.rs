@@ -14,17 +14,14 @@ use terminal::TerminalState;
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init());
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_os::init());
 
-    // Desktop-only plugins:
-    // Windows, Linux and macOS
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
-    // Android and desktop:
-    // Terminal state and commands
     #[cfg(not(target_os = "ios"))]
     let builder = builder
         .manage(TerminalState::default())
@@ -50,7 +47,6 @@ pub fn run() {
             terminal::terminal_close
         ]);
 
-    // iOS-only commands
     #[cfg(target_os = "ios")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         ai::ai_chat,
