@@ -34,6 +34,8 @@ export default function TerminalPanel({ cwd }: Props) {
         cursor: "#a78bfa",
         selectionBackground: "#45415e",
       },
+      allowProposedApi: true,
+      convertEol: false,
     });
 
     const fitAddon = new FitAddon();
@@ -44,6 +46,7 @@ export default function TerminalPanel({ cwd }: Props) {
     let sessionId: string | null = null;
     let disposed = false;
     let animationFrame = 0;
+    let closing = false;
 
     let unlistenOutput: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
@@ -74,72 +77,114 @@ export default function TerminalPanel({ cwd }: Props) {
             }).catch(console.error);
           }
         } catch (error) {
-          console.error("Terminal fit error:", error);
+          console.error("Terminal resize failed:", error);
         }
       });
     };
 
+    const closeSession = async (id: string) => {
+      if (closing) return;
+
+      closing = true;
+
+      try {
+        await invoke("terminal_close", {
+          sessionId: id,
+        });
+      } catch (error) {
+        console.error("Terminal close failed:", error);
+      }
+    };
+
     const start = async () => {
       try {
-        unlistenOutput = await listen<TerminalOutput>(
+        const outputListener = await listen<TerminalOutput>(
           "terminal-output",
           (event) => {
-            if (event.payload.session_id === sessionId) {
+            if (
+              !disposed &&
+              event.payload.session_id === sessionId
+            ) {
               terminal.write(event.payload.data);
             }
           }
         );
 
-        unlistenExit = await listen<string>(
+        if (disposed) {
+          outputListener();
+          return;
+        }
+
+        unlistenOutput = outputListener;
+
+        const exitListener = await listen<string>(
           "terminal-exit",
           (event) => {
-            if (event.payload === sessionId) {
+            if (
+              !disposed &&
+              event.payload === sessionId
+            ) {
               terminal.writeln("\r\n[Process exited]");
+              sessionId = null;
             }
           }
         );
 
-        if (disposed) return;
+        if (disposed) {
+          exitListener();
+          return;
+        }
 
-        fitTerminal();
+        unlistenExit = exitListener;
+
+        if (
+          container.clientWidth > 0 &&
+          container.clientHeight > 0
+        ) {
+          fitAddon.fit();
+        }
 
         const id = await invoke<string>("terminal_spawn", {
           cwd: cwd || null,
-          cols: terminal.cols,
-          rows: terminal.rows,
+          cols: Math.max(terminal.cols, 20),
+          rows: Math.max(terminal.rows, 5),
         });
 
         if (disposed) {
-          await invoke("terminal_close", {
-            sessionId: id,
-          });
+          await closeSession(id);
           return;
         }
 
         sessionId = id;
 
-        terminal.writeln("Welcome to koai terminal.");
+        terminal.writeln("koai terminal ^_^");
+        terminal.writeln("This is **not** an isolated environment. Run commands carefully.");
         terminal.writeln("");
 
         terminal.onData((data) => {
-          if (!sessionId) return;
+          if (!sessionId || disposed) return;
 
           void invoke("terminal_write", {
             sessionId,
             data,
           }).catch((error) => {
-            terminal.writeln(
-              `\r\nTerminal error: ${String(error)}`
-            );
+            if (!disposed) {
+              terminal.writeln(
+                `\r\nTerminal error: ${String(error)}`
+              );
+            }
           });
         });
 
         fitTerminal();
         terminal.focus();
       } catch (error) {
-        terminal.writeln(
-          `\r\nFailed to start terminal: ${String(error)}`
-        );
+        if (!disposed) {
+          terminal.writeln(
+            `\r\nFailed to start terminal: ${String(error)}`
+          );
+          console.error("Terminal startup failed:", error);
+        }
       }
     };
 
@@ -161,9 +206,7 @@ export default function TerminalPanel({ cwd }: Props) {
       unlistenExit?.();
 
       if (sessionId) {
-        void invoke("terminal_close", {
-          sessionId,
-        });
+        void closeSession(sessionId);
       }
 
       terminal.dispose();
