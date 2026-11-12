@@ -161,10 +161,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Install every architecture supported by Tauri Android.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - name: Install dependencies
         run: npm install
@@ -209,23 +210,32 @@ jobs:
           echo "NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
 
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
-
-      - name: Verify Android environment
+      - name: Verify Android toolchains
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
-          echo "Android SDK: $ANDROID_HOME"
-          echo "Android NDK: $ANDROID_NDK_HOME"
+          NDK_BIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+          for COMPILER in \
+            aarch64-linux-android24-clang \
+            armv7a-linux-androideabi24-clang \
+            i686-linux-android24-clang \
+            x86_64-linux-android24-clang
+          do
+            if [ ! -x "$NDK_BIN/$COMPILER" ]; then
+              echo "Missing compiler: $COMPILER"
+              exit 1
+            fi
+
+            echo "Found: $COMPILER"
+          done
 
           rustup target list --installed
 
           rustc --version
           cargo --version
           java -version
-
-          test -x "$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
 
       - name: Initialize Tauri Android project
         run: npm run tauri android init
@@ -267,6 +277,8 @@ jobs:
 
           chmod 600 keystore.properties
 
+      # Let Tauri select and configure all Android architectures.
+      # Do not manually override Cargo linker environment variables.
       - name: Build Android Release APK
         shell: bash
         env:
@@ -276,10 +288,7 @@ jobs:
         run: |
           set -euxo pipefail
 
-          npm run tauri android build -- \
-            --apk \
-            --target aarch64 \
-            --verbose
+          npm run tauri android build -- --apk --verbose
 
       - name: Verify Android Release APK
         shell: bash
@@ -293,12 +302,14 @@ jobs:
             exit 1
           fi
 
+          mkdir -p android-release
+
           APK_COUNT=0
 
           while IFS= read -r APK; do
             APK_COUNT=$((APK_COUNT + 1))
 
-            echo "Verifying $APK"
+            echo "Verifying: $APK"
 
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
               verify --verbose "$APK"
@@ -306,20 +317,22 @@ jobs:
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
               verify --print-certs "$APK"
 
+            cp "$APK" android-release/
+
           done < <(find "$APK_DIR" -type f -path "*/release/*.apk")
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No release APK generated."
+            echo "No Android release APK was generated."
             exit 1
           fi
 
-          echo "Successfully verified $APK_COUNT APK(s)."
+          echo "Verified $APK_COUNT Android APK(s)."
 
       - name: Upload Android Release Artifact
         uses: actions/upload-artifact@v4
         with:
           name: koai-android-release-${{ steps.version.outputs.app_version }}
-          path: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
+          path: android-release/*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -337,11 +350,25 @@ jobs:
           name: koai-android-release-${{ needs.android.outputs.app_version }}
           path: android-release
 
+      - name: Verify downloaded APK files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_COUNT=$(find android-release -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "No APK files found."
+            exit 1
+          fi
+
+          find android-release -type f -name "*.apk" -print
+
       - name: Upload Android APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.android.outputs.app_version }}
-          files: android-release/**/*.apk
+          files: android-release/*.apk
           fail_on_unmatched_files: true
           overwrite_files: true
         env:
