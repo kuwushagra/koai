@@ -161,7 +161,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # Install every architecture supported by Tauri Android.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -194,14 +193,14 @@ jobs:
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 
           if [ -z "$SDK_ROOT" ]; then
-            echo "Android SDK not found."
+            echo "ERROR: Android SDK not found."
             exit 1
           fi
 
           NDK_PATH="$SDK_ROOT/ndk/27.2.12479018"
 
           if [ ! -d "$NDK_PATH" ]; then
-            echo "Android NDK not found: $NDK_PATH"
+            echo "ERROR: Android NDK not found."
             exit 1
           fi
 
@@ -209,6 +208,9 @@ jobs:
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+
+          echo "Android SDK: $SDK_ROOT"
+          echo "Android NDK: $NDK_PATH"
 
       - name: Verify Android toolchains
         shell: bash
@@ -224,21 +226,70 @@ jobs:
             x86_64-linux-android24-clang
           do
             if [ ! -x "$NDK_BIN/$COMPILER" ]; then
-              echo "Missing compiler: $COMPILER"
+              echo "ERROR: Missing compiler: $COMPILER"
               exit 1
             fi
 
-            echo "Found: $COMPILER"
+            echo "Found compiler: $COMPILER"
           done
 
+          echo "Installed Rust targets:"
           rustup target list --installed
 
+          echo "Rust version:"
           rustc --version
+
+          echo "Cargo version:"
           cargo --version
+
+          echo "Java version:"
           java -version
 
       - name: Initialize Tauri Android project
         run: npm run tauri android init
+
+      - name: Configure Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          GRADLE_PROPERTIES="src-tauri/gen/android/gradle.properties"
+
+          python3 - "$GRADLE_PROPERTIES" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+
+          existing = (
+              path.read_text().splitlines()
+              if path.exists()
+              else []
+          )
+
+          settings = {
+              "org.gradle.configuration-cache": "false",
+              "org.gradle.parallel": "false",
+              "org.gradle.workers.max": "2",
+              "org.gradle.daemon": "false",
+              "org.gradle.caching": "false",
+              "org.gradle.jvmargs": "-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+          }
+
+          for key in settings:
+              existing = [
+                  line for line in existing
+                  if not line.strip().startswith(key + "=")
+              ]
+
+          for key, value in settings.items():
+              existing.append(f"{key}={value}")
+
+          path.write_text("\n".join(existing) + "\n")
+
+          print("Updated Gradle properties:")
+          print(path.read_text())
+          PY
 
       - name: Configure Android release signing
         shell: bash
@@ -277,18 +328,23 @@ jobs:
 
           chmod 600 keystore.properties
 
-      # Let Tauri select and configure all Android architectures.
-      # Do not manually override Cargo linker environment variables.
+          echo "Android release signing configured."
+
       - name: Build Android Release APK
         shell: bash
         env:
           RUST_BACKTRACE: full
           CARGO_TERM_VERBOSE: "true"
-          GRADLE_OPTS: "-Dorg.gradle.logging.stacktrace=all -Dorg.gradle.logging.level=info"
+          CARGO_INCREMENTAL: "0"
+          GRADLE_OPTS: "-Dorg.gradle.logging.level=info -Dorg.gradle.logging.stacktrace=all"
         run: |
           set -euxo pipefail
 
-          npm run tauri android build -- --apk --verbose
+          echo "Starting Android release build..."
+
+          npm run tauri android build -- \
+            --apk \
+            --verbose
 
       - name: Verify Android Release APK
         shell: bash
@@ -298,7 +354,7 @@ jobs:
           APK_DIR="src-tauri/gen/android/app/build/outputs/apk"
 
           if [ ! -d "$APK_DIR" ]; then
-            echo "APK output directory not found."
+            echo "ERROR: APK output directory not found."
             exit 1
           fi
 
@@ -309,7 +365,7 @@ jobs:
           while IFS= read -r APK; do
             APK_COUNT=$((APK_COUNT + 1))
 
-            echo "Verifying: $APK"
+            echo "Verifying APK: $APK"
 
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
               verify --verbose "$APK"
@@ -317,22 +373,39 @@ jobs:
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
               verify --print-certs "$APK"
 
-            cp "$APK" android-release/
+            RELATIVE_PATH="${APK#"$APK_DIR"/}"
+
+            mkdir -p "android-release/$(dirname "$RELATIVE_PATH")"
+
+            cp "$APK" "android-release/$RELATIVE_PATH"
 
           done < <(find "$APK_DIR" -type f -path "*/release/*.apk")
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No Android release APK was generated."
+            echo "ERROR: No Android release APK generated."
             exit 1
           fi
 
-          echo "Verified $APK_COUNT Android APK(s)."
+          echo "Successfully verified $APK_COUNT APK(s)."
+
+      - name: Upload Gradle diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: koai-gradle-diagnostics-${{ github.run_id }}
+          path: |
+            src-tauri/gen/android/build/reports/
+            src-tauri/gen/android/build/tmp/
+            src-tauri/gen/android/app/build/reports/
+            src-tauri/gen/android/app/build/outputs/logs/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload Android Release Artifact
         uses: actions/upload-artifact@v4
         with:
           name: koai-android-release-${{ steps.version.outputs.app_version }}
-          path: android-release/*.apk
+          path: android-release/**/*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -358,9 +431,11 @@ jobs:
           APK_COUNT=$(find android-release -type f -name "*.apk" | wc -l)
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No APK files found."
+            echo "ERROR: No APK files downloaded."
             exit 1
           fi
+
+          echo "Downloaded $APK_COUNT APK(s)."
 
           find android-release -type f -name "*.apk" -print
 
@@ -368,7 +443,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.android.outputs.app_version }}
-          files: android-release/*.apk
+          files: android-release/**/*.apk
           fail_on_unmatched_files: true
           overwrite_files: true
         env:
