@@ -121,6 +121,7 @@ jobs:
       CARGO_BUILD_JOBS: "1"
       CARGO_INCREMENTAL: "0"
       RUST_BACKTRACE: full
+      CARGO_TERM_VERBOSE: "true"
 
     steps:
       - name: Checkout
@@ -159,25 +160,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: "17"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-
-      - name: Install dependencies
-        run: npm install
+          targets: aarch64-linux-android
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          packages: platform-tools
 
       - name: Install Android SDK packages
         shell: bash
@@ -185,6 +185,7 @@ jobs:
           set -euo pipefail
 
           sdkmanager --install \
+            "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;27.2.12479018" \
@@ -209,44 +210,36 @@ jobs:
             exit 1
           fi
 
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          {
+            echo "ANDROID_HOME=$SDK_ROOT"
+            echo "ANDROID_SDK_ROOT=$SDK_ROOT"
+            echo "NDK_HOME=$NDK_PATH"
+            echo "ANDROID_NDK_HOME=$NDK_PATH"
+          } >> "$GITHUB_ENV"
 
           echo "Android SDK: $SDK_ROOT"
           echo "Android NDK: $NDK_PATH"
 
-      - name: Verify Android toolchains
+      - name: Verify Android toolchain
         shell: bash
         run: |
           set -euo pipefail
 
           NDK_BIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          COMPILER="$NDK_BIN/aarch64-linux-android24-clang"
 
-          for COMPILER in \
-            aarch64-linux-android24-clang \
-            armv7a-linux-androideabi24-clang \
-            i686-linux-android24-clang \
-            x86_64-linux-android24-clang
-          do
-            if [ ! -x "$NDK_BIN/$COMPILER" ]; then
-              echo "ERROR: Missing compiler: $COMPILER"
-              exit 1
-            fi
+          if [ ! -x "$COMPILER" ]; then
+            echo "ERROR: Missing ARM64 Android compiler."
+            exit 1
+          fi
 
-            echo "Found compiler: $COMPILER"
-          done
-
+          echo "Found compiler: $COMPILER"
           echo "Installed Rust targets:"
           rustup target list --installed
-
           echo "Rust version:"
           rustc --version
-
           echo "Cargo version:"
           cargo --version
-
           echo "Java version:"
           java -version
 
@@ -293,7 +286,6 @@ jobs:
 
           path.write_text("\n".join(existing) + "\n")
 
-          print("Updated Gradle properties:")
           print(path.read_text())
           PY
 
@@ -311,7 +303,13 @@ jobs:
           : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
 
           ANDROID_DIR="src-tauri/gen/android"
+          APP_GRADLE="$ANDROID_DIR/app/build.gradle.kts"
           KEYSTORE_PATH="$RUNNER_TEMP/koai-release.jks"
+
+          if [ ! -f "$APP_GRADLE" ]; then
+            echo "ERROR: Android app build.gradle.kts not found."
+            exit 1
+          fi
 
           printf '%s' "$ANDROID_KEY_BASE64" \
             | base64 --decode > "$KEYSTORE_PATH"
@@ -334,7 +332,67 @@ jobs:
 
           chmod 600 keystore.properties
 
-          echo "Android release signing configured."
+          python3 - "app/build.gradle.kts" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          source = path.read_text()
+
+          for statement in [
+              "import java.io.FileInputStream",
+              "import java.util.Properties",
+          ]:
+              if statement not in source:
+                  source = statement + "\n" + source
+
+          signing_block = '''
+              signingConfigs {
+                  create("release") {
+                      val keystorePropertiesFile = rootProject.file("keystore.properties")
+                      val keystoreProperties = Properties()
+
+                      if (keystorePropertiesFile.exists()) {
+                          keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+                      }
+
+                      keyAlias = keystoreProperties["keyAlias"] as String
+                      keyPassword = keystoreProperties["password"] as String
+                      storeFile = file(keystoreProperties["storeFile"] as String)
+                      storePassword = keystoreProperties["password"] as String
+                  }
+              }
+
+          '''
+
+          if "signingConfigs {" not in source:
+              match = re.search(r'(?m)^(\s*)buildTypes\s*\{', source)
+
+              if not match:
+                  raise SystemExit("ERROR: Could not find buildTypes block.")
+
+              source = source[:match.start()] + signing_block + source[match.start():]
+
+          if 'signingConfig = signingConfigs.getByName("release")' not in source:
+              match = re.search(r'(?m)^(\s*)getByName\("release"\)\s*\{', source)
+
+              if not match:
+                  raise SystemExit("ERROR: Could not find release build type.")
+
+              indent = match.group(1) + "    "
+              insertion = (
+                  match.group(0)
+                  + "\n"
+                  + indent
+                  + 'signingConfig = signingConfigs.getByName("release")'
+              )
+
+              source = source[:match.start()] + insertion + source[match.end():]
+
+          path.write_text(source)
+          print("Android release signing configured.")
+          PY
 
       - name: Build Android Release APK
         shell: bash
@@ -343,16 +401,20 @@ jobs:
           CARGO_TERM_VERBOSE: "true"
           CARGO_BUILD_JOBS: "1"
           CARGO_INCREMENTAL: "0"
-          GRADLE_OPTS: "-Dorg.gradle.logging.level=info"
+          GRADLE_OPTS: "-Dorg.gradle.logging.level=info -Dorg.gradle.daemon=false"
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
-          echo "Starting Android release build..."
-          echo "Cargo jobs: $CARGO_BUILD_JOBS"
+          echo "Starting ARM64 Android release build..."
+          echo "Rust target: aarch64-linux-android"
 
           npm run tauri android build -- \
             --apk \
-            --verbose
+            --target aarch64 \
+            --verbose \
+            -- \
+            --stacktrace \
+            --info
 
       - name: Verify Android Release APK
         shell: bash
@@ -395,6 +457,7 @@ jobs:
           fi
 
           echo "Successfully verified $APK_COUNT APK(s)."
+          find android-release -type f -name "*.apk" -print
 
       - name: Upload Gradle diagnostic reports
         if: always()
@@ -444,7 +507,6 @@ jobs:
           fi
 
           echo "Downloaded $APK_COUNT APK(s)."
-
           find android-release -type f -name "*.apk" -print
 
       - name: Upload Android APK to GitHub Release
