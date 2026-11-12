@@ -172,10 +172,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -f src-tauri/gen/android/settings.gradle.kts
+          test -f src-tauri/gen/android/settings.gradle
           test -f src-tauri/gen/android/app/build.gradle.kts
           test -f src-tauri/gen/android/app/tauri.build.gradle.kts
-
+          
       - name: Configure Android signing
         shell: bash
         env:
