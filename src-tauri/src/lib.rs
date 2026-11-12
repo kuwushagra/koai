@@ -26,6 +26,7 @@ pub fn run() {
     let builder = builder
         .manage(TerminalState::default())
         .invoke_handler(tauri::generate_handler![
+            get_android_workspace,
             ai::ai_chat,
             ai::setup_master_password,
             ai::unlock_ai_settings,
