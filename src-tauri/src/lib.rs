@@ -2,63 +2,74 @@
 mod commands;
 mod ai;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 mod terminal;
 
 use commands::filesystem::*;
+
+#[cfg(not(target_os = "ios"))]
+use terminal::TerminalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init());
 
+    // Desktop-only plugins
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(terminal::TerminalState::default());
+        .plugin(tauri_plugin_updater::Builder::new().build());
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = builder.invoke_handler(tauri::generate_handler![
-        ai::ai_chat,
-        ai::setup_master_password,
-        ai::unlock_ai_settings,
-        ai::lock_ai_settings,
-        ai::is_ai_unlocked,
-        ai::has_ai_settings,
-        ai::save_ai_settings,
-        ai::get_ai_settings,
-        read_file,
-        write_file,
-        list_directory,
-        create_entry,
-        rename_entry,
-        delete_entry,
-        parent_directory,
-        terminal::terminal_spawn,
-        terminal::terminal_write,
-        terminal::terminal_resize,
-        terminal::terminal_close
-    ]);
+    // Android and desktop
+    #[cfg(not(target_os = "ios"))]
+    let builder = builder
+        .manage(TerminalState::default())
+        .invoke_handler(tauri::generate_handler![
+            ai::ai_chat,
+            ai::setup_master_password,
+            ai::unlock_ai_settings,
+            ai::lock_ai_settings,
+            ai::is_ai_unlocked,
+            ai::has_ai_settings,
+            ai::save_ai_settings,
+            ai::get_ai_settings,
 
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    let builder = builder.invoke_handler(tauri::generate_handler![
-        ai::ai_chat,
-        ai::setup_master_password,
-        ai::unlock_ai_settings,
-        ai::lock_ai_settings,
-        ai::is_ai_unlocked,
-        ai::has_ai_settings,
-        ai::save_ai_settings,
-        ai::get_ai_settings,
-        read_file,
-        write_file,
-        list_directory,
-        create_entry,
-        rename_entry,
-        delete_entry,
-        parent_directory
-    ]);
+            read_file,
+            write_file,
+            list_directory,
+            create_entry,
+            rename_entry,
+            delete_entry,
+            parent_directory,
+
+            terminal::terminal_spawn,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_close
+        ]);
+
+    // iOS: no terminal commands
+    #[cfg(target_os = "ios")]
+    let builder = builder
+        .invoke_handler(tauri::generate_handler![
+            ai::ai_chat,
+            ai::setup_master_password,
+            ai::unlock_ai_settings,
+            ai::lock_ai_settings,
+            ai::is_ai_unlocked,
+            ai::has_ai_settings,
+            ai::save_ai_settings,
+            ai::get_ai_settings,
+
+            read_file,
+            write_file,
+            list_directory,
+            create_entry,
+            rename_entry,
+            delete_entry,
+            parent_directory
+        ]);
 
     builder
         .manage(ai::AIEncryptionState::default())
