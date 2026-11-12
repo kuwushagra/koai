@@ -1,8 +1,7 @@
 import { getVersion } from "@tauri-apps/api/app";
-
-import { platform } from "@tauri-apps/plugin-os";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import semver from "semver";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 
 const GITHUB_OWNER = "kuwushagra";
 const GITHUB_REPO = "koai";
@@ -223,6 +222,7 @@ function App() {
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [assistantHeight, setAssistantHeight] = useState(300);
 
+  const isAndroid = /android/i.test(navigator.userAgent);
 
   const checkAIEncryption = async () => {
     try {
@@ -591,91 +591,130 @@ function App() {
     });
   }, [expandedDirectories, directoryContents, loadDirectory]);
 
+
+  const openAndroidWorkspace = useCallback(async () => {
+  try {
+    const path = await invoke<string>("get_android_workspace");
+
+    const entries = await invoke<FileEntry[]>("list_directory", {
+      path,
+    });
+
+    setDirectoryContents({
+      [path]: entries.sort((a, b) => {
+        if (a.isDir !== b.isDir) {
+          return a.isDir ? -1 : 1;
+        }
+
+        return a.name.localeCompare(b.name);
+      }),
+    });
+
+    setExpandedDirectories(new Set([path]));
+    setRootDirectory(path);
+    setOpenFiles([]);
+    setActiveFile(null);
+    setActiveMenu(null);
+    setSearchVisible(false);
+
+    showToast("Android workspace opened");
+  } catch (error) {
+    showToast(normalizeError(error));
+  }
+}, [showToast]);
+
   const openWorkspace = useCallback(async () => {
-    try {
-      if (hasUnsavedChanges) {
-        setConfirmWorkspaceChange(true);
-        return;
-      }
-
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Folder",
-      });
-
-      if (!selected || Array.isArray(selected)) return;
-
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path: selected,
-      });
-
-      setDirectoryContents({
-        [selected]: entries.sort((a, b) => {
-          if (a.isDir !== b.isDir) {
-            return a.isDir ? -1 : 1;
-          }
-
-          return a.name.localeCompare(b.name);
-        }),
-      });
-
-      setExpandedDirectories(new Set([selected]));
-
-      setRootDirectory(selected);
-      setOpenFiles([]);
-      setActiveFile(null);
-      setActiveMenu(null);
-      setSearchVisible(false);
-
-      localStorage.setItem("koai-last-workspace", selected);
-
-      showToast(`${entries.length} items loaded`);
-    } catch (error) {
-      showToast(normalizeError(error));
+  if (isAndroid) {
+    if (hasUnsavedChanges) {
+      setConfirmWorkspaceChange(true);
+      return;
     }
-  }, [hasUnsavedChanges, showToast]);
+
+    await openAndroidWorkspace();
+    return;
+  }
+
+  try {
+    if (hasUnsavedChanges) {
+      setConfirmWorkspaceChange(true);
+      return;
+    }
+
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Open Folder",
+    });
+
+    if (!selected || Array.isArray(selected)) return;
+
+    const entries = await invoke<FileEntry[]>("list_directory", {
+      path: selected,
+    });
+
+    setDirectoryContents({
+      [selected]: entries.sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      }),
+    });
+
+    setExpandedDirectories(new Set([selected]));
+    setRootDirectory(selected);
+    setOpenFiles([]);
+    setActiveFile(null);
+    setActiveMenu(null);
+    setSearchVisible(false);
+
+    localStorage.setItem("koai-last-workspace", selected);
+
+    showToast(`${entries.length} items loaded`);
+  } catch (error) {
+    showToast(normalizeError(error));
+  }
+}, [isAndroid, hasUnsavedChanges, showToast, openAndroidWorkspace]);
 
   const openWorkspaceWithoutSaving = useCallback(async () => {
-    setConfirmWorkspaceChange(false);
+  setConfirmWorkspaceChange(false);
 
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Folder",
-      });
+  if (isAndroid) {
+    await openAndroidWorkspace();
+    return;
+  }
 
-      if (!selected || Array.isArray(selected)) return;
+  try {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Open Folder",
+    });
 
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path: selected,
-      });
+    if (!selected || Array.isArray(selected)) return;
 
-      setDirectoryContents({
-        [selected]: entries.sort((a, b) => {
-          if (a.isDir !== b.isDir) {
-            return a.isDir ? -1 : 1;
-          }
+    const entries = await invoke<FileEntry[]>("list_directory", {
+      path: selected,
+    });
 
-          return a.name.localeCompare(b.name);
-        }),
-      });
+    setDirectoryContents({
+      [selected]: entries.sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      }),
+    });
 
-      setExpandedDirectories(new Set([selected]));
+    setExpandedDirectories(new Set([selected]));
+    setRootDirectory(selected);
+    setOpenFiles([]);
+    setActiveFile(null);
+    setSearchVisible(false);
 
-      setRootDirectory(selected);
-      setOpenFiles([]);
-      setActiveFile(null);
-      setSearchVisible(false);
+    localStorage.setItem("koai-last-workspace", selected);
 
-      localStorage.setItem("koai-last-workspace", selected);
-
-      showToast(`${entries.length} items loaded`);
-    } catch (error) {
-      showToast(normalizeError(error));
-    }
-  }, [showToast]);
+    showToast(`${entries.length} items loaded`);
+  } catch (error) {
+    showToast(normalizeError(error));
+  }
+}, [isAndroid, openAndroidWorkspace, showToast]);
 
   const saveAll = useCallback(async () => {
     const unsaved = openFiles.filter((file) => file.dirty);
@@ -760,21 +799,65 @@ function App() {
   );
 
   const openSingleFile = useCallback(async () => {
-    try {
-      const selected = await open({
-        directory: false,
-        multiple: false,
-        title: "Open File",
+  try {
+    const selected = await open({
+      directory: false,
+      multiple: false,
+    });
+
+    if (!selected || Array.isArray(selected)) return;
+
+    if (isAndroid) {
+      const workspace = rootDirectory ||
+        await invoke<string>("get_android_workspace");
+
+      const decoded = decodeURIComponent(selected);
+
+      const name =
+        decoded.split("/").pop()?.split(":").pop()?.split("?")[0]
+        || "untitled.txt";
+
+      const content = await readTextFile(selected);
+
+      const destination = joinPath(workspace, name);
+
+      await invoke("write_file", {
+        path: destination,
+        content,
       });
 
-      if (!selected || Array.isArray(selected)) return;
+      if (!rootDirectory) {
+        const entries = await invoke<FileEntry[]>("list_directory", {
+          path: workspace,
+        });
 
-      await openFile(selected);
+        setRootDirectory(workspace);
+        setDirectoryContents({
+          [workspace]: entries,
+        });
+        setExpandedDirectories(new Set([workspace]));
+      } else {
+        await loadDirectory(workspace);
+      }
+
+      await openFile(destination, name);
       setActiveMenu(null);
-    } catch (error) {
-      showToast(normalizeError(error));
+      showToast("File imported successfully");
+      return;
     }
-  }, [openFile, showToast]);
+
+    await openFile(selected);
+    setActiveMenu(null);
+  } catch (error) {
+    showToast(normalizeError(error));
+  }
+}, [
+  isAndroid,
+  rootDirectory,
+  openFile,
+  loadDirectory,
+  showToast,
+]);
 
   const createNewFile = useCallback(async () => {
     const name = newFileName.trim();
@@ -785,21 +868,27 @@ function App() {
     }
 
     try {
-      if (!rootDirectory) {
-        const destination = await save({
-          title: "Create File",
-          defaultPath: name,
-        });
+      if (!rootDirectory && isAndroid) {
+  await openAndroidWorkspace();
+  showToast("Workspace opened. Create your file again.");
+  return;
+}
 
-        if (!destination) return;
+if (!rootDirectory) {
+  const destination = await save({
+    title: "Create File",
+    defaultPath: name,
+  });
 
-        await invoke("write_file", {
-          path: destination,
-          content: "",
-        });
+  if (!destination) return;
 
-        await openFile(destination, getFileName(destination));
-      } else {
+  await invoke("write_file", {
+    path: destination,
+    content: "",
+  });
+
+  await openFile(destination, getFileName(destination));
+} else {
         await invoke("create_entry", {
           directory: rootDirectory,
           name,
@@ -821,7 +910,7 @@ function App() {
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [newFileName, rootDirectory, openFile, showToast]);
+  }, [isAndroid, openAndroidWorkspace, newFileName, rootDirectory, openFile, showToast]);
 
   const createNewFolder = useCallback(async () => {
     const name = newFolderName.trim();
@@ -1389,151 +1478,153 @@ function App() {
     }
   };
 
-const checkForUpdates = async () => {
-  setActiveMenu(null);
+  const checkForUpdates = async () => {
+    setActiveMenu(null);
 
-  let update: Awaited<ReturnType<typeof check>> = null;
+    let update: Awaited<ReturnType<typeof check>> = null;
 
-  try {
-    showToast("Checking for updates...");
+    try {
+      showToast("Checking for updates...");
 
-    if (platform() === "android") {
-      const currentVersion = await getVersion();
+      const isAndroid = /android/i.test(navigator.userAgent);
 
-      const response = await fetch(
-        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-        {
-          headers: {
-            Accept: "application/vnd.github+json"
+      if (isAndroid) {
+        const currentVersion = await getVersion();
+
+        const response = await fetch(
+          `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+          {
+            headers: {
+              Accept: "application/vnd.github+json"
+            }
           }
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `GitHub API error: ${response.status}`
         );
+
+        if (!response.ok) {
+          throw new Error(
+            `GitHub API error: ${response.status}`
+          );
+        }
+
+        const release = await response.json();
+
+        const latestVersion = release.tag_name.replace(/^v/, "");
+
+        if (!semver.valid(latestVersion)) {
+          throw new Error("Invalid release version");
+        }
+
+        if (!semver.gt(latestVersion, currentVersion)) {
+          showToast("koai is already up to date!");
+          return;
+        }
+
+        const apk = release.assets.find(
+          (asset: { name: string }) =>
+            asset.name.toLowerCase().endsWith(".apk")
+        );
+
+        if (!apk) {
+          throw new Error("No APK found in the latest GitHub release");
+        }
+
+        const confirmed = await confirm(
+          `A new version of koai is available!\n\n` +
+          `Current version: ${currentVersion}\n` +
+          `New version: ${latestVersion}\n\n` +
+          `Release notes:\n${release.body || "No release notes available."}\n\n` +
+          `Would you like to download the update?`,
+          {
+            title: "koai Update Available",
+            kind: "info",
+            okLabel: "Download APK",
+            cancelLabel: "Cancel"
+          }
+        );
+
+        if (!confirmed) {
+          showToast("Update cancelled");
+          return;
+        }
+
+        showToast(`Opening koai ${latestVersion} download...`);
+
+        await openUrl(apk.browser_download_url);
+
+        showToast(
+  "Download the APK and open it from Downloads to install the update."
+);
+
+        return;
       }
 
-      const release = await response.json();
+      // Windows / Linux / macOS
 
-      const latestVersion = release.tag_name.replace(/^v/, "");
+      update = await check();
 
-      if (!semver.valid(latestVersion)) {
-        throw new Error("Invalid release version");
-      }
-
-      if (!semver.gt(latestVersion, currentVersion)) {
+      if (!update) {
         showToast("koai is already up to date!");
         return;
       }
 
-      const apk = release.assets.find(
-        (asset: { name: string }) =>
-          asset.name.toLowerCase().endsWith(".apk")
-      );
-
-      if (!apk) {
-        throw new Error("No APK found in the latest GitHub release");
-      }
-
       const confirmed = await confirm(
         `A new version of koai is available!\n\n` +
-        `Current version: ${currentVersion}\n` +
-        `New version: ${latestVersion}\n\n` +
-        `Release notes:\n${release.body || "No release notes available."}\n\n` +
-        `Would you like to download the update?`,
+        `Current version: ${update.currentVersion}\n` +
+        `New version: ${update.version}\n\n` +
+        `Release notes:\n${update.body || "No release notes available."}\n\n` +
+        `Would you like to download and install it?`,
         {
           title: "koai Update Available",
           kind: "info",
-          okLabel: "Download APK",
+          okLabel: "Download & Install",
           cancelLabel: "Cancel"
         }
       );
 
       if (!confirmed) {
+        await update.close();
         showToast("Update cancelled");
         return;
       }
 
-      showToast(`Opening koai ${latestVersion} download...`);
+      showToast(`Downloading koai ${update.version}...`);
 
-      await openUrl(apk.browser_download_url);
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            showToast("Update download started...");
+            break;
 
-      showToast(
-        "APK download opened. Install the downloaded update to continue."
-      );
+          case "Progress":
+            console.log(
+              "Downloaded chunk:",
+              event.data.chunkLength
+            );
+            break;
 
-      return;
-    }
+          case "Finished":
+            showToast("Download complete. Installing...");
+            break;
+        }
+      });
 
-    // Windows / Linux / macOS
+      showToast("Update installed. Restarting koai...");
 
-    update = await check();
+      await relaunch();
 
-    if (!update) {
-      showToast("koai is already up to date!");
-      return;
-    }
+    } catch (error) {
+      console.error("Updater error:", error);
 
-    const confirmed = await confirm(
-      `A new version of koai is available!\n\n` +
-      `Current version: ${update.currentVersion}\n` +
-      `New version: ${update.version}\n\n` +
-      `Release notes:\n${update.body || "No release notes available."}\n\n` +
-      `Would you like to download and install it?`,
-      {
-        title: "koai Update Available",
-        kind: "info",
-        okLabel: "Download & Install",
-        cancelLabel: "Cancel"
+      if (update) {
+        try {
+          await update.close();
+        } catch {
+        }
       }
-    );
 
-    if (!confirmed) {
-      await update.close();
-      showToast("Update cancelled");
-      return;
+      showToast(`Update failed: ${normalizeError(error)}`);
     }
-
-    showToast(`Downloading koai ${update.version}...`);
-
-    await update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case "Started":
-          showToast("Update download started...");
-          break;
-
-        case "Progress":
-          console.log(
-            "Downloaded chunk:",
-            event.data.chunkLength
-          );
-          break;
-
-        case "Finished":
-          showToast("Download complete. Installing...");
-          break;
-      }
-    });
-
-    showToast("Update installed. Restarting koai...");
-
-    await relaunch();
-
-  } catch (error) {
-    console.error("Updater error:", error);
-
-    if (update) {
-      try {
-        await update.close();
-      } catch {
-      }
-    }
-
-    showToast(`Update failed: ${normalizeError(error)}`);
-  }
-};
+  };
 
   const changeTheme = (name: ThemeName) => {
     setThemeName(name);
