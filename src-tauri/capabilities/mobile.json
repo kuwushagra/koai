@@ -1,11 +1,11 @@
-
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile-capability",
-  "description": "Mobile permissions for koai",
+  "description": "Android and iOS permissions",
   "platforms": ["android", "iOS"],
   "windows": ["main"],
   "permissions": [
-    "dialog:default"
+    "dialog:default",
+    "saf:default"
   ]
 }
