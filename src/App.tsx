@@ -193,15 +193,15 @@ function App() {
 
   const [aiProvider, setAiProvider] = useState<AIProvider | "">(
     () => {
-  const saved = localStorage.getItem("koai-provider");
+      const saved = localStorage.getItem("koai-provider");
 
-  return saved === "openai" ||
-    saved === "anthropic" ||
-    saved === "google" ||
-    saved === "custom"
-    ? saved
-    : "";
-}
+      return saved === "openai" ||
+        saved === "anthropic" ||
+        saved === "google" ||
+        saved === "custom"
+        ? saved
+        : "";
+    }
   );
 
   const [aiApiKey, setAiApiKey] = useState("");
@@ -564,18 +564,20 @@ function App() {
     try {
       const entries = await fileService.listDirectory(path);
 
+      const sorted = entries.sort((a, b) => {
+        if (a.isDir !== b.isDir) {
+          return a.isDir ? -1 : 1;
+        }
+
+        return a.name.localeCompare(b.name);
+      });
+
       setDirectoryContents((previous) => ({
         ...previous,
-        [path]: entries.sort((a: FileEntry, b: FileEntry) => {
-  if (a.isDir !== b.isDir) {
-    return a.isDir ? -1 : 1;
-  }
-
-  return a.name.localeCompare(b.name);
-}),
+        [path]: sorted,
       }));
 
-      return entries;
+      return sorted;
     } catch (error) {
       showToast(normalizeError(error));
       return [];
@@ -607,145 +609,149 @@ function App() {
   }, [expandedDirectories, directoryContents, loadDirectory]);
 
 
-const openAndroidWorkspace = useCallback(async () => {
-  try {
-    const path = await invoke<string>("get_android_workspace");
+  const openAndroidWorkspace = useCallback(async () => {
+    try {
+      const path = await fileService.pickWorkspaceFolder();
 
-    const entries = await fileService.listDirectory(path);
+      if (!path) return;
 
-    setDirectoryContents({
-      [path]: entries.sort((a: FileEntry, b: FileEntry) => {
+      const entries = await fileService.listDirectory(path);
+
+      const sorted = entries.sort((a, b) => {
         if (a.isDir !== b.isDir) {
           return a.isDir ? -1 : 1;
         }
 
         return a.name.localeCompare(b.name);
-      }),
-    });
-
-    setExpandedDirectories(new Set([path]));
-    setRootDirectory(path);
-    setOpenFiles([]);
-    setActiveFile(null);
-    setActiveMenu(null);
-    setSearchVisible(false);
-
-    showToast("Android workspace opened");
-  } catch (error) {
-    showToast(normalizeError(error));
-  }
-}, [showToast]);
-
-
-const openWorkspace = useCallback(async () => {
-  if (hasUnsavedChanges) {
-    setConfirmWorkspaceChange(true);
-    return;
-  }
-
-  try {
-    let selected: string;
-
-    if (isAndroid) {
-      const result = await fileService.pickWorkspaceFolder();
-
-      if (!result) return;
-
-      selected = result;
-    } else {
-      const result = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Folder",
       });
 
-      if (!result || Array.isArray(result)) return;
-
-      selected = result;
-    }
-
-    const entries = await fileService.listDirectory(selected);
-
-    setDirectoryContents({
-      [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
-        if (a.isDir !== b.isDir) {
-          return a.isDir ? -1 : 1;
-        }
-
-        return a.name.localeCompare(b.name);
-      }),
-    });
-
-    setExpandedDirectories(new Set([selected]));
-    setRootDirectory(selected);
-    setOpenFiles([]);
-    setActiveFile(null);
-    setActiveMenu(null);
-    setSearchVisible(false);
-
-    if (!isAndroid) {
-      localStorage.setItem("koai-last-workspace", selected);
-    }
-
-    showToast(`${entries.length} items loaded`);
-  } catch (error) {
-    showToast(normalizeError(error));
-  }
-}, [isAndroid, hasUnsavedChanges, showToast]);
-
-
-const openWorkspaceWithoutSaving = useCallback(async () => {
-  setConfirmWorkspaceChange(false);
-
-  try {
-    let selected: string;
-
-    if (isAndroid) {
-      const result = await fileService.pickWorkspaceFolder();
-
-      if (!result) return;
-
-      selected = result;
-    } else {
-      const result = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Folder",
+      setDirectoryContents({
+        [path]: sorted,
       });
 
-      if (!result || Array.isArray(result)) return;
+      setExpandedDirectories(new Set([path]));
+      setRootDirectory(path);
+      setOpenFiles([]);
+      setActiveFile(null);
+      setActiveMenu(null);
+      setSearchVisible(false);
 
-      selected = result;
+      showToast("Android workspace opened");
+    } catch (error) {
+      showToast(normalizeError(error));
+    }
+  }, [showToast]);
+
+
+  const openWorkspace = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      setConfirmWorkspaceChange(true);
+      return;
     }
 
-    const entries = await fileService.listDirectory(selected);
+    try {
+      let selected: string;
 
-    setDirectoryContents({
-      [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
-        if (a.isDir !== b.isDir) {
-          return a.isDir ? -1 : 1;
-        }
+      if (isAndroid) {
+        const result = await fileService.pickWorkspaceFolder();
 
-        return a.name.localeCompare(b.name);
-      }),
-    });
+        if (!result) return;
 
-    setExpandedDirectories(new Set([selected]));
-    setRootDirectory(selected);
-    setOpenFiles([]);
-    setActiveFile(null);
-    setActiveMenu(null);
-    setSearchVisible(false);
+        selected = result;
+      } else {
+        const result = await open({
+          directory: true,
+          multiple: false,
+          title: "Open Folder",
+        });
 
-    if (!isAndroid) {
-      localStorage.setItem("koai-last-workspace", selected);
+        if (!result || Array.isArray(result)) return;
+
+        selected = result;
+      }
+
+      const entries = await fileService.listDirectory(selected);
+
+      setDirectoryContents({
+        [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
+          if (a.isDir !== b.isDir) {
+            return a.isDir ? -1 : 1;
+          }
+
+          return a.name.localeCompare(b.name);
+        }),
+      });
+
+      setExpandedDirectories(new Set([selected]));
+      setRootDirectory(selected);
+      setOpenFiles([]);
+      setActiveFile(null);
+      setActiveMenu(null);
+      setSearchVisible(false);
+
+      if (!isAndroid) {
+        localStorage.setItem("koai-last-workspace", selected);
+      }
+
+      showToast(`${entries.length} items loaded`);
+    } catch (error) {
+      showToast(normalizeError(error));
     }
+  }, [isAndroid, hasUnsavedChanges, showToast]);
 
-    showToast(`${entries.length} items loaded`);
-  } catch (error) {
-    showToast(normalizeError(error));
-  }
-}, [isAndroid, showToast]);
+
+  const openWorkspaceWithoutSaving = useCallback(async () => {
+    setConfirmWorkspaceChange(false);
+
+    try {
+      let selected: string;
+
+      if (isAndroid) {
+        const result = await fileService.pickWorkspaceFolder();
+
+        if (!result) return;
+
+        selected = result;
+      } else {
+        const result = await open({
+          directory: true,
+          multiple: false,
+          title: "Open Folder",
+        });
+
+        if (!result || Array.isArray(result)) return;
+
+        selected = result;
+      }
+
+      const entries = await fileService.listDirectory(selected);
+
+      setDirectoryContents({
+        [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
+          if (a.isDir !== b.isDir) {
+            return a.isDir ? -1 : 1;
+          }
+
+          return a.name.localeCompare(b.name);
+        }),
+      });
+
+      setExpandedDirectories(new Set([selected]));
+      setRootDirectory(selected);
+      setOpenFiles([]);
+      setActiveFile(null);
+      setActiveMenu(null);
+      setSearchVisible(false);
+
+      if (!isAndroid) {
+        localStorage.setItem("koai-last-workspace", selected);
+      }
+
+      showToast(`${entries.length} items loaded`);
+    } catch (error) {
+      showToast(normalizeError(error));
+    }
+  }, [isAndroid, showToast]);
 
   const saveAll = useCallback(async () => {
     const unsaved = openFiles.filter((file) => file.dirty);
@@ -798,7 +804,6 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
 
       try {
         const content = await fileService.read(path);
-
         const fileName = name ?? getFileName(path);
 
         const file: OpenFile = {
@@ -835,79 +840,79 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
       if (!selected || Array.isArray(selected)) return;
 
       if (isAndroid) {
-  const content = await readTextFile(selected);
+        const content = await readTextFile(selected);
 
-  const decoded = decodeURIComponent(selected);
+        const decoded = decodeURIComponent(selected);
 
-  const originalName =
-    decoded
-      .split("/")
-      .pop()
-      ?.split(":")
-      .pop()
-      ?.split("?")[0] || "untitled.txt";
+        const originalName =
+          decoded
+            .split("/")
+            .pop()
+            ?.split(":")
+            .pop()
+            ?.split("?")[0] || "untitled.txt";
 
-  const name = originalName.replace(/[\\/]/g, "_");
+        const name = originalName.replace(/[\\/]/g, "_");
 
-  const workspace =
-    rootDirectory ||
-    await invoke<string>("get_android_workspace");
+        const workspace =
+          rootDirectory ||
+          await invoke<string>("get_android_workspace");
 
-  let destinationName = name;
-  let destination = joinPath(workspace, destinationName);
+        let destinationName = name;
+        let destination = joinPath(workspace, destinationName);
 
-  try {
-    await invoke("create_entry", {
-      directory: workspace,
-      name: destinationName,
-      isDirectory: false,
-    });
-  } catch {
-    const extensionIndex = name.lastIndexOf(".");
-    const baseName = extensionIndex > 0
-      ? name.slice(0, extensionIndex)
-      : name;
+        try {
+          await invoke("create_entry", {
+            directory: workspace,
+            name: destinationName,
+            isDirectory: false,
+          });
+        } catch {
+          const extensionIndex = name.lastIndexOf(".");
+          const baseName = extensionIndex > 0
+            ? name.slice(0, extensionIndex)
+            : name;
 
-    const extension = extensionIndex > 0
-      ? name.slice(extensionIndex)
-      : "";
+          const extension = extensionIndex > 0
+            ? name.slice(extensionIndex)
+            : "";
 
-    destinationName = `${baseName}-${Date.now()}${extension}`;
-    destination = joinPath(workspace, destinationName);
+          destinationName = `${baseName}-${Date.now()}${extension}`;
+          destination = joinPath(workspace, destinationName);
 
-    await invoke("create_entry", {
-      directory: workspace,
-      name: destinationName,
-      isDirectory: false,
-    });
-  }
+          await invoke("create_entry", {
+            directory: workspace,
+            name: destinationName,
+            isDirectory: false,
+          });
+        }
 
-  await invoke("write_file", {
-    path: destination,
-    content,
-  });
+        await invoke("write_file", {
+          path: destination,
+          content,
+        });
 
-  if (!rootDirectory) {
-    const entries = await invoke<FileEntry[]>(
-      "list_directory",
-      { path: workspace }
-    );
+        if (!rootDirectory) {
+          const entries = await invoke<FileEntry[]>(
+            "list_directory",
+            { path: workspace }
+          );
 
-    setRootDirectory(workspace);
-    setDirectoryContents({
-      [workspace]: entries,
-    });
-    setExpandedDirectories(new Set([workspace]));
-  } else {
-    await loadDirectory(workspace);
-  }
+          setRootDirectory(workspace);
+          setDirectoryContents({
+            [workspace]: entries,
+          });
+          setExpandedDirectories(new Set([workspace]));
+        } else {
+          await loadDirectory(workspace);
+        }
 
-  await openFile(destination, destinationName);
+        await openFile(destination, destinationName);
 
-  setActiveMenu(null);
-  showToast("External file imported successfully");
-  return;
-}
+        setActiveMenu(null);
+        showToast("External file imported successfully");
+        return;
+      }
 
       await openFile(selected);
       setActiveMenu(null);
@@ -931,13 +936,13 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
     }
 
     try {
-      if (!rootDirectory && isAndroid) {
-        await openAndroidWorkspace();
-        showToast("Workspace opened. Create your file again.");
-        return;
-      }
-
       if (!rootDirectory) {
+        if (isAndroid) {
+          await openAndroidWorkspace();
+          showToast("Workspace opened. Create your file again.");
+          return;
+        }
+
         const destination = await save({
           title: "Create File",
           defaultPath: name,
@@ -945,35 +950,36 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
 
         if (!destination) return;
 
-        await invoke("write_file", {
-          path: destination,
-          content: "",
-        });
+        await fileService.write(destination, "");
 
         await openFile(destination, getFileName(destination));
       } else {
-        await invoke("create_entry", {
-          directory: rootDirectory,
+        const path = await fileService.create(
+          rootDirectory,
           name,
-          isDirectory: false,
-        });
+          false
+        );
 
-        if (rootDirectory) {
-          await loadDirectory(rootDirectory);
-        }
-
-        const path = joinPath(rootDirectory, name);
-
+        await loadDirectory(rootDirectory);
         await openFile(path, name);
       }
 
       setNewFileName("");
       setNewFileVisible(false);
+
       showToast("File created");
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [isAndroid, openAndroidWorkspace, newFileName, rootDirectory, openFile, showToast]);
+  }, [
+    isAndroid,
+    rootDirectory,
+    newFileName,
+    openAndroidWorkspace,
+    openFile,
+    loadDirectory,
+    showToast,
+  ]);
 
   const createNewFolder = useCallback(async () => {
     const name = newFolderName.trim();
@@ -984,11 +990,11 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
     }
 
     try {
-      await invoke("create_entry", {
-        directory: rootDirectory,
+      await fileService.create(
+        rootDirectory,
         name,
-        isDirectory: true,
-      });
+        true
+      );
 
       await loadDirectory(rootDirectory);
 
@@ -999,7 +1005,7 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [newFolderName, rootDirectory, showToast]);
+  }, [newFolderName, rootDirectory, loadDirectory, showToast]);
 
   const updateFileContent = useCallback(
     (path: string, content: string) => {
@@ -1027,16 +1033,19 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
       if (!target) return;
 
       try {
-        await fileService.write(target.path, target.content);
+        await fileService.write(
+          target.path,
+          target.content
+        );
 
         setOpenFiles((previous) =>
           previous.map((file) =>
             file.path === target.path
               ? {
-  ...file,
-  savedContent: target.content,
-  dirty: file.content !== target.content,
-}
+                ...file,
+                savedContent: target.content,
+                dirty: file.content !== target.content,
+              }
               : file
           )
         );
@@ -1053,17 +1062,41 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
     if (!currentFile) return;
 
     try {
-      const destination = await save({
-        title: "Save File As",
-        defaultPath: currentFile.name,
-      });
+      let destination: string;
 
-      if (!destination) return;
+      if (isAndroid) {
+        if (!rootDirectory) {
+          showToast("Open a workspace first");
+          return;
+        }
 
-      await invoke("write_file", {
-        path: destination,
-        content: currentFile.content,
-      });
+        const name = window.prompt(
+          "Enter new file name:",
+          currentFile.name
+        );
+
+        if (!name?.trim()) return;
+
+        destination = await fileService.create(
+          rootDirectory,
+          name.trim(),
+          false
+        );
+      } else {
+        const selected = await save({
+          title: "Save File As",
+          defaultPath: currentFile.name,
+        });
+
+        if (!selected) return;
+
+        destination = selected;
+      }
+
+      await fileService.write(
+        destination,
+        currentFile.content
+      );
 
       const name = getFileName(destination);
 
@@ -1071,7 +1104,6 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
         previous.map((file) =>
           file.path === currentFile.path
             ? {
-
               ...file,
               path: destination,
               name,
@@ -1084,20 +1116,35 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
       );
 
       setActiveFile(destination);
+
+      if (rootDirectory) {
+        await loadDirectory(rootDirectory);
+      }
+
       showToast("File saved");
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [currentFile, showToast]);
+  }, [
+    currentFile,
+    isAndroid,
+    rootDirectory,
+    loadDirectory,
+    showToast,
+  ]);
 
   const deleteEntry = useCallback(
     async (path: string) => {
       try {
         await fileService.delete(path);
 
-if (rootDirectory) {
-  await loadDirectory(rootDirectory);
-}
+        const parent = await fileService.parentDirectory(path);
+
+        if (parent) {
+          await loadDirectory(parent);
+        } else if (rootDirectory) {
+          await loadDirectory(rootDirectory);
+        }
 
         setDirectoryContents((previous) => {
           const next = { ...previous };
@@ -1106,39 +1153,41 @@ if (rootDirectory) {
         });
 
         const separator = path.includes("\\") ? "\\" : "/";
-const prefix = path.endsWith(separator)
-  ? path
-  : `${path}${separator}`;
+        const prefix = path.endsWith(separator)
+          ? path
+          : `${path}${separator}`;
 
-const deletedFiles = openFiles.filter(
-  (file) =>
-    file.path === path ||
-    file.path.startsWith(prefix)
-);
+        const deletedFiles = openFiles.filter(
+          (file) =>
+            file.path === path ||
+            file.path.startsWith(prefix)
+        );
 
-if (deletedFiles.length > 0) {
-  const remaining = openFiles.filter(
-    (file) =>
-      file.path !== path &&
-      !file.path.startsWith(prefix)
-  );
+        if (deletedFiles.length > 0) {
+          const remaining = openFiles.filter(
+            (file) =>
+              file.path !== path &&
+              !file.path.startsWith(prefix)
+          );
 
-  setOpenFiles(remaining);
+          setOpenFiles(remaining);
 
-  if (
-    activeFile &&
-    deletedFiles.some((file) => file.path === activeFile)
-  ) {
-    setActiveFile(remaining[0]?.path ?? null);
-  }
-}
+          if (
+            activeFile &&
+            deletedFiles.some(
+              (file) => file.path === activeFile
+            )
+          ) {
+            setActiveFile(remaining[0]?.path ?? null);
+          }
+        }
 
         showToast("Item deleted");
       } catch (error) {
         showToast(normalizeError(error));
       }
-    }, [openFiles, activeFile, rootDirectory, showToast, loadDirectory]
-
+    },
+    [openFiles, activeFile, rootDirectory, showToast, loadDirectory]
   );
 
   const renameEntry = useCallback(
@@ -1153,25 +1202,47 @@ if (deletedFiles.length > 0) {
       try {
         const newPath = await fileService.rename(path, name);
 
-        const parentPath = path.replace(/[\\/][^\\/]+$/, "");
+        const parent = await fileService.parentDirectory(newPath);
 
-        await loadDirectory(parentPath);
+        if (parent) {
+          await loadDirectory(parent);
+        } else if (rootDirectory) {
+          await loadDirectory(rootDirectory);
+        }
+
+        const separator = path.includes("\\") ? "\\" : "/";
+        const prefix = path.endsWith(separator)
+          ? path
+          : `${path}${separator}`;
 
         setOpenFiles((previous) =>
-          previous.map((file) =>
-            file.path === path
-              ? {
+          previous.map((file) => {
+            if (file.path === path) {
+              return {
                 ...file,
                 path: newPath,
                 name,
                 language: getLanguage(name),
-              }
-              : file
-          )
+              };
+            }
+
+            if (file.path.startsWith(prefix)) {
+              return {
+                ...file,
+                path: newPath + file.path.slice(path.length),
+              };
+            }
+
+            return file;
+          })
         );
 
         if (activeFile === path) {
           setActiveFile(newPath);
+        } else if (activeFile?.startsWith(prefix)) {
+          setActiveFile(
+            newPath + activeFile.slice(path.length)
+          );
         }
 
         showToast("Renamed successfully");
@@ -1179,7 +1250,7 @@ if (deletedFiles.length > 0) {
         showToast(normalizeError(error));
       }
     },
-    [activeFile, showToast, loadDirectory]
+    [activeFile, rootDirectory, showToast, loadDirectory]
   );
 
   const applyAIResponse = useCallback(() => {
@@ -1232,7 +1303,10 @@ if (deletedFiles.length > 0) {
 
       if (file.dirty && saveBeforeClose) {
         try {
-          await fileService.write(file.path, file.content);
+          await fileService.write(
+            file.path,
+            file.content
+          );
         } catch (error) {
           showToast(normalizeError(error));
           return;
@@ -2789,9 +2863,9 @@ if (deletedFiles.length > 0) {
                   </div>
 
                   <div>
-  <span>Platform</span>
-  <strong>{isAndroid ? "Android" : "Desktop"}</strong>
-</div>
+                    <span>Platform</span>
+                    <strong>{isAndroid ? "Android" : "Desktop"}</strong>
+                  </div>
 
                   <div>
                     <span>Developed by</span>
