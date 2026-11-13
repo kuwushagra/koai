@@ -81,6 +81,14 @@ button:disabled {
   color: var(--text);
 }
 
+.koai-app {
+  padding-top: env(safe-area-inset-top, 24px);
+  min-height: 100dvh;
+  height: 100dvh;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
 .koai-app,
 .koai-app * {
   scrollbar-width: thin;

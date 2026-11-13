@@ -5,6 +5,10 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "dialog:default",
+    "fs:default",
+    "os:default",
+    "upload:default",
+    "android-installer:default"
   ]
 }

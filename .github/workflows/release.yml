@@ -18,19 +18,14 @@ jobs:
         include:
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-
           - platform: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-
           - platform: windows-11-arm
             target: aarch64-pc-windows-msvc
-
           - platform: macos-latest
             target: aarch64-apple-darwin
-
           - platform: macos-15-intel
             target: x86_64-apple-darwin
 
@@ -46,11 +41,10 @@ jobs:
         id: version
         shell: bash
         run: |
-          set -euo pipefail
-
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.2.${COMMIT_NUMBER}"
 
+          echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
 
           export APP_VERSION
@@ -59,8 +53,13 @@ jobs:
             const fs = require("fs");
             const path = "src-tauri/tauri.conf.json";
             const config = JSON.parse(fs.readFileSync(path, "utf8"));
+
             config.version = process.env.APP_VERSION;
-            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+
+            fs.writeFileSync(
+              path,
+              JSON.stringify(config, null, 2) + "\n"
+            );
           '
 
       - name: Setup Node
@@ -71,7 +70,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Rust target
+      - name: Install Rust targets
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
@@ -107,16 +106,6 @@ jobs:
   android:
     runs-on: ubuntu-22.04
 
-    outputs:
-      app_version: ${{ steps.version.outputs.app_version }}
-
-    env:
-      CARGO_BUILD_JOBS: "1"
-      CARGO_INCREMENTAL: "0"
-      CARGO_TERM_VERBOSE: "true"
-      RUST_BACKTRACE: full
-      GRADLE_OPTS: "-Xmx3g -Dorg.gradle.parallel=false -Dorg.gradle.workers.max=1"
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -127,11 +116,10 @@ jobs:
         id: version
         shell: bash
         run: |
-          set -euo pipefail
-
           COMMIT_NUMBER=$(git rev-list --count HEAD)
           APP_VERSION="1.2.${COMMIT_NUMBER}"
 
+          echo "Generated version: $APP_VERSION"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
 
           export APP_VERSION
@@ -140,41 +128,47 @@ jobs:
             const fs = require("fs");
             const path = "src-tauri/tauri.conf.json";
             const config = JSON.parse(fs.readFileSync(path, "utf8"));
+
             config.version = process.env.APP_VERSION;
-            fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+
+            fs.writeFileSync(
+              path,
+              JSON.stringify(config, null, 2) + "\n"
+            );
           '
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: 17
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install dependencies
+        run: npm install
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
           set -euo pipefail
 
           sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
             "ndk;27.2.12479018" \
             "cmake;3.22.1"
 
@@ -183,39 +177,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
 
-          if [ -z "$SDK_ROOT" ]; then
-            echo "Android SDK not found."
-            exit 1
-          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
-          NDK_PATH="$SDK_ROOT/ndk/27.2.12479018"
+      - name: Verify Android environment
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          if [ ! -d "$NDK_PATH" ]; then
-            echo "Android NDK not found: $NDK_PATH"
-            exit 1
-          fi
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "NDK_HOME=$NDK_HOME"
 
-          {
-            echo "ANDROID_HOME=$SDK_ROOT"
-            echo "ANDROID_SDK_ROOT=$SDK_ROOT"
-            echo "NDK_HOME=$NDK_PATH"
-            echo "ANDROID_NDK_HOME=$NDK_PATH"
-          } >> "$GITHUB_ENV"
+          test -d "$ANDROID_HOME"
+          test -d "$ANDROID_HOME/cmdline-tools"
+          test -d "$ANDROID_HOME/platform-tools"
+          test -d "$ANDROID_HOME/platforms/android-36"
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
+          test -d "$ANDROID_HOME/ndk/27.2.12479018"
+          test -d "$ANDROID_HOME/cmake/3.22.1"
 
-          NDK_BIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin"
-
-          test -x "$NDK_BIN/aarch64-linux-android24-clang"
-
-          rustc --version
-          cargo --version
+          sdkmanager --version
+          adb version
           java -version
+          rustup target list --installed
 
       - name: Initialize Tauri Android project
         run: npm run tauri android init
 
-      - name: Configure Android signing
+      - name: Configure Android release signing
         shell: bash
         env:
           ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
@@ -224,235 +218,88 @@ jobs:
         run: |
           set -euo pipefail
 
-          : "${ANDROID_KEY_BASE64:?Missing ANDROID_KEY_BASE64}"
-          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS}"
-          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
+          : "${ANDROID_KEY_BASE64:?Missing ANDROID_KEY_BASE64 secret}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
 
           ANDROID_DIR="src-tauri/gen/android"
-          APP_GRADLE="$ANDROID_DIR/app/build.gradle.kts"
           KEYSTORE_PATH="$RUNNER_TEMP/koai-release.jks"
 
-          test -f "$APP_GRADLE"
+          test -f "$ANDROID_DIR/app/build.gradle.kts"
 
           printf '%s' "$ANDROID_KEY_BASE64" \
             | base64 --decode > "$KEYSTORE_PATH"
 
           chmod 600 "$KEYSTORE_PATH"
 
+          test -s "$KEYSTORE_PATH"
+
           keytool -list \
             -keystore "$KEYSTORE_PATH" \
-            -storepass "$ANDROID_KEY_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" \
-            > /dev/null
-
-          cd "$ANDROID_DIR"
+            -storepass:env ANDROID_KEY_PASSWORD \
+            -alias "$ANDROID_KEY_ALIAS"
 
           {
             printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
             printf 'password=%s\n' "$ANDROID_KEY_PASSWORD"
             printf 'storeFile=%s\n' "$KEYSTORE_PATH"
-          } > keystore.properties
+          } > "$ANDROID_DIR/keystore.properties"
 
-          chmod 600 keystore.properties
+          chmod 600 "$ANDROID_DIR/keystore.properties"
 
-          python3 - "app/build.gradle.kts" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
+      - name: Build Android Release APK
+        run: npm run tauri android build -- --apk
 
-          path = Path(sys.argv[1])
-          source = path.read_text()
-
-          for statement in (
-              "import java.io.FileInputStream",
-              "import java.util.Properties",
-          ):
-              if statement not in source:
-                  source = statement + "\n" + source
-
-          if "create(\"release\")" not in source:
-              signing_config = '''
-          signingConfigs {
-              create("release") {
-                  val keystorePropertiesFile = rootProject.file("keystore.properties")
-                  val keystoreProperties = Properties()
-
-                  if (!keystorePropertiesFile.exists()) {
-                      throw GradleException("Missing keystore.properties")
-                  }
-
-                  keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-
-                  keyAlias = keystoreProperties["keyAlias"] as String
-                  keyPassword = keystoreProperties["password"] as String
-                  storeFile = file(keystoreProperties["storeFile"] as String)
-                  storePassword = keystoreProperties["password"] as String
-              }
-          }
-
-          '''
-
-              match = re.search(r'(?m)^buildTypes\s*\{', source)
-
-              if not match:
-                  raise SystemExit("Could not find buildTypes block.")
-
-              source = source[:match.start()] + signing_config + source[match.start():]
-
-          if 'signingConfig = signingConfigs.getByName("release")' not in source:
-              match = re.search(
-                  r'(?m)^(\s*)getByName\("release"\)\s*\{',
-                  source
-              )
-
-              if not match:
-                  raise SystemExit("Could not find release build type.")
-
-              indent = match.group(1) + "    "
-
-              insertion = (
-                  match.group(0)
-                  + "\n"
-                  + indent
-                  + 'signingConfig = signingConfigs.getByName("release")'
-              )
-
-              source = source[:match.start()] + insertion + source[match.end():]
-
-          path.write_text(source)
-          print("Android signing configured.")
-          PY
-
-      - name: Build Android ARM64 APK
+      - name: Verify Android Release APK
         shell: bash
         run: |
           set -euo pipefail
 
-          npm run tauri android build -- \
-            --apk \
-            --target aarch64 \
-            --verbose
-
-      - name: Diagnose Gradle failure
-        if: failure()
-        shell: bash
-        run: |
-          set +e
-
-          cd src-tauri/gen/android
-
-          echo "Running Gradle release diagnostics..."
-
-          ./gradlew \
-            --no-daemon \
-            --stacktrace \
-            --info \
-            :app:assembleRelease
-
-          RESULT=$?
-
-          echo "Gradle diagnostic exit code: $RESULT"
-
-          exit 0
-
-      - name: Verify Android APK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APK_DIR="src-tauri/gen/android/app/build/outputs/apk"
-
-          if [ ! -d "$APK_DIR" ]; then
-            echo "APK output directory not found."
-            exit 1
-          fi
-
-          mkdir -p android-release
+          APK_PATH="src-tauri/gen/android/app/build/outputs/apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
 
           APK_COUNT=0
+
+          mkdir -p android-release
 
           while IFS= read -r APK; do
             APK_COUNT=$((APK_COUNT + 1))
 
             echo "Verifying: $APK"
 
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
-              verify --verbose "$APK"
+            "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
 
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
-              verify --print-certs "$APK"
+            "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
 
-            RELATIVE_PATH="${APK#"$APK_DIR"/}"
+            cp "$APK" android-release/koai-android.apk
 
-            mkdir -p "android-release/$(dirname "$RELATIVE_PATH")"
-
-            cp "$APK" "android-release/$RELATIVE_PATH"
-
-          done < <(find "$APK_DIR" -type f -path "*/release/*.apk")
+          done < <(find "$APK_PATH" -type f -path "*/release/*.apk")
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No release APK generated."
+            echo "No Android release APK was generated."
             exit 1
           fi
 
-          echo "Successfully verified $APK_COUNT APK(s)."
+          if [ "$APK_COUNT" -gt 1 ]; then
+            echo "Multiple APKs found. Refusing ambiguous release upload."
+            exit 1
+          fi
 
-      - name: Upload Gradle diagnostic reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: koai-gradle-diagnostics-${{ github.run_id }}
-          path: |
-            src-tauri/gen/android/build/reports/
-            src-tauri/gen/android/build/tmp/
-            src-tauri/gen/android/app/build/reports/
-            src-tauri/gen/android/app/build/outputs/logs/
-          if-no-files-found: ignore
-          retention-days: 7
+          echo "Android APK ready:"
+          ls -lh android-release/
 
-      - name: Upload Android Release Artifact
+      - name: Upload Android Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: koai-android-release-${{ steps.version.outputs.app_version }}
-          path: android-release/**/*.apk
+          path: android-release/koai-android.apk
           if-no-files-found: error
-          retention-days: 30
 
-  android-release:
-    runs-on: ubuntu-22.04
-
-    needs:
-      - publish
-      - android
-
-    steps:
-      - name: Download Android Release Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: koai-android-release-${{ needs.android.outputs.app_version }}
-          path: android-release
-
-      - name: Verify downloaded APK files
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APK_COUNT=$(find android-release -type f -name "*.apk" | wc -l)
-
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "No APK files downloaded."
-            exit 1
-          fi
-
-          echo "Downloaded $APK_COUNT APK(s)."
-          find android-release -type f -name "*.apk" -print
-
-      - name: Upload Android APK to GitHub Release
+      - name: Upload Android Release APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.android.outputs.app_version }}
-          files: android-release/**/*.apk
+          tag_name: v${{ steps.version.outputs.app_version }}
+          files: android-release/koai-android.apk
           fail_on_unmatched_files: true
-          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

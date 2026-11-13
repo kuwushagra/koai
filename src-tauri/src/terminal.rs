@@ -1,11 +1,14 @@
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+
+use portable_pty::{
+    native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize,
+};
 
 use std::{
     collections::HashMap,
     io::{Read, Write},
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
     },
     thread,
 };
@@ -32,6 +35,18 @@ pub struct TerminalState {
     sessions: Mutex<HashMap<String, Arc<TerminalSession>>>,
 }
 
+#[cfg(target_os = "android")]
+const SHELL: &str = "/system/bin/sh";
+
+#[cfg(target_os = "linux")]
+const SHELL: &str = "/bin/bash";
+
+#[cfg(target_os = "macos")]
+const SHELL: &str = "/bin/zsh";
+
+#[cfg(target_os = "windows")]
+const SHELL: &str = "powershell.exe";
+
 #[tauri::command]
 pub fn terminal_spawn(
     app: AppHandle,
@@ -51,18 +66,15 @@ pub fn terminal_spawn(
         })
         .map_err(|e| e.to_string())?;
 
-    #[cfg(target_os = "windows")]
-    let mut command = CommandBuilder::new("powershell.exe");
-
-    #[cfg(target_os = "macos")]
-    let mut command =
-        CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()));
-
-    #[cfg(target_os = "linux")]
-    let mut command =
-        CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()));
+    let mut command = CommandBuilder::new(SHELL);
 
     command.env("TERM", "xterm-256color");
+
+    #[cfg(target_os = "android")]
+    {
+        command.env("HOME", "/data/user/0/com.kuwushagra.koai/files");
+        command.env("TMPDIR", "/data/user/0/com.kuwushagra.koai/cache");
+    }
 
     if let Some(directory) = cwd {
         if !directory.trim().is_empty() {
@@ -77,9 +89,13 @@ pub fn terminal_spawn(
 
     let killer = child.clone_killer();
 
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let mut reader = pair.master
+        .try_clone_reader()
+        .map_err(|e| e.to_string())?;
 
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let writer = pair.master
+        .take_writer()
+        .map_err(|e| e.to_string())?;
 
     drop(pair.slave);
 
@@ -91,8 +107,7 @@ pub fn terminal_spawn(
         killer: Mutex::new(killer),
     });
 
-    state
-        .sessions
+    state.sessions
         .lock()
         .map_err(|e| e.to_string())?
         .insert(id.clone(), session);
@@ -107,7 +122,8 @@ pub fn terminal_spawn(
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(size) => {
-                    let data = String::from_utf8_lossy(&buffer[..size]).to_string();
+                    let data =
+                        String::from_utf8_lossy(&buffer[..size]).to_string();
 
                     let _ = app_handle.emit(
                         "terminal-output",
@@ -141,8 +157,7 @@ pub fn terminal_write(
 
     let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
 
-    writer
-        .write_all(data.as_bytes())
+    writer.write_all(data.as_bytes())
         .map_err(|e| e.to_string())?;
 
     writer.flush().map_err(|e| e.to_string())?;
@@ -165,28 +180,31 @@ pub fn terminal_resize(
 
     let master = session.master.lock().map_err(|e| e.to_string())?;
 
-    master
-        .resize(PtySize {
-            rows: rows.max(1),
-            cols: cols.max(1),
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| e.to_string())?;
+    master.resize(PtySize {
+        rows: rows.max(1),
+        cols: cols.max(1),
+        pixel_width: 0,
+        pixel_height: 0,
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 #[tauri::command]
-pub fn terminal_close(state: State<'_, TerminalState>, session_id: String) -> Result<(), String> {
-    let session = state
-        .sessions
+pub fn terminal_close(
+    state: State<'_, TerminalState>,
+    session_id: String,
+) -> Result<(), String> {
+    let session = state.sessions
         .lock()
         .map_err(|e| e.to_string())?
         .remove(&session_id);
 
     if let Some(session) = session {
-        let mut killer = session.killer.lock().map_err(|e| e.to_string())?;
+        let mut killer = session.killer
+            .lock()
+            .map_err(|e| e.to_string())?;
 
         killer.kill().map_err(|e| e.to_string())?;
     }

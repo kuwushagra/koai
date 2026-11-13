@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-capability",
+  "description": "Android and iOS permissions",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "permissions": [
+    "dialog:default"
+  ]
+}

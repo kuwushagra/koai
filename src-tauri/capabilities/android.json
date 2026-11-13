@@ -1,0 +1,25 @@
+
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android-capability",
+  "description": "Android filesystem and SAF permissions",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "android-fs:default",
+    "android-fs:allow-write-text-file",
+    "android-fs:allow-read-text-file",
+    "android-fs:allow-read-dir",
+    "android-fs:allow-create-new-file",
+    "android-fs:allow-create-dir",
+    "android-fs:allow-rename-file",
+    "android-fs:allow-rename-dir",
+    "android-fs:allow-remove-file",
+    "android-fs:allow-remove-dir-all",
+    "android-fs:allow-show-open-dir-picker",
+    "android-fs:allow-persist-picker-uri-permission",
+    "android-fs:allow-get-type"
+  ]
+}

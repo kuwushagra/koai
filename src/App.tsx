@@ -1,4 +1,18 @@
 import { getVersion } from "@tauri-apps/api/app";
+//import { openUrl } from "@tauri-apps/plugin-opener";
+import { fileService } from "./services/fileService";
+import semver from "semver";
+import { readTextFile } from "@tauri-apps/plugin-fs";
+import { download } from "@tauri-apps/plugin-upload";
+import { appCacheDir, join } from "@tauri-apps/api/path";
+import {
+  install,
+  canInstall,
+  requestInstallPermission,
+} from "tauri-plugin-android-installer-api";
+
+const GITHUB_OWNER = "kuwushagra";
+const GITHUB_REPO = "koai";
 
 import {
   open,
@@ -72,6 +86,7 @@ interface SearchResult {
   file: FileEntry;
   match: string;
   line?: number;
+  query: string;
 }
 
 interface AssistantMessage {
@@ -178,7 +193,16 @@ function App() {
   });
 
   const [aiProvider, setAiProvider] = useState<AIProvider | "">(
-    () => (localStorage.getItem("koai-provider") as AIProvider) || ""
+    () => {
+      const saved = localStorage.getItem("koai-provider");
+
+      return saved === "openai" ||
+        saved === "anthropic" ||
+        saved === "google" ||
+        saved === "custom"
+        ? saved
+        : "";
+    }
   );
 
   const [aiApiKey, setAiApiKey] = useState("");
@@ -216,6 +240,7 @@ function App() {
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [assistantHeight, setAssistantHeight] = useState(300);
 
+  const isAndroid = /android/i.test(navigator.userAgent);
 
   const checkAIEncryption = async () => {
     try {
@@ -311,6 +336,13 @@ function App() {
   const [searchMode, setSearchMode] = useState<SearchMode>("files");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+
+  const [searchNavigation, setSearchNavigation] = useState<{
+    query: string;
+    line?: number;
+    requestId: number;
+  } | null>(null);
+
   const [searchVisible, setSearchVisible] = useState(false);
   const [searching, setSearching] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -538,22 +570,22 @@ function App() {
 
   const loadDirectory = useCallback(async (path: string) => {
     try {
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path,
+      const entries = await fileService.listDirectory(path);
+
+      const sorted = entries.sort((a, b) => {
+        if (a.isDir !== b.isDir) {
+          return a.isDir ? -1 : 1;
+        }
+
+        return a.name.localeCompare(b.name);
       });
 
       setDirectoryContents((previous) => ({
         ...previous,
-        [path]: entries.sort((a, b) => {
-          if (a.isDir !== b.isDir) {
-            return a.isDir ? -1 : 1;
-          }
-
-          return a.name.localeCompare(b.name);
-        }),
+        [path]: sorted,
       }));
 
-      return entries;
+      return sorted;
     } catch (error) {
       showToast(normalizeError(error));
       return [];
@@ -584,27 +616,72 @@ function App() {
     });
   }, [expandedDirectories, directoryContents, loadDirectory]);
 
-  const openWorkspace = useCallback(async () => {
+
+  const openAndroidWorkspace = useCallback(async () => {
     try {
-      if (hasUnsavedChanges) {
-        setConfirmWorkspaceChange(true);
-        return;
-      }
+      const path = await fileService.pickWorkspaceFolder();
 
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Folder",
-      });
+      if (!path) return;
 
-      if (!selected || Array.isArray(selected)) return;
+      const entries = await fileService.listDirectory(path);
 
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path: selected,
+      const sorted = entries.sort((a, b) => {
+        if (a.isDir !== b.isDir) {
+          return a.isDir ? -1 : 1;
+        }
+
+        return a.name.localeCompare(b.name);
       });
 
       setDirectoryContents({
-        [selected]: entries.sort((a, b) => {
+        [path]: sorted,
+      });
+
+      setExpandedDirectories(new Set([path]));
+      setRootDirectory(path);
+      setOpenFiles([]);
+      setActiveFile(null);
+      setActiveMenu(null);
+      setSearchVisible(false);
+
+      showToast("Android workspace opened");
+    } catch (error) {
+      showToast(normalizeError(error));
+    }
+  }, [showToast]);
+
+
+  const openWorkspace = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      setConfirmWorkspaceChange(true);
+      return;
+    }
+
+    try {
+      let selected: string;
+
+      if (isAndroid) {
+        const result = await fileService.pickWorkspaceFolder();
+
+        if (!result) return;
+
+        selected = result;
+      } else {
+        const result = await open({
+          directory: true,
+          multiple: false,
+          title: "Open Folder",
+        });
+
+        if (!result || Array.isArray(result)) return;
+
+        selected = result;
+      }
+
+      const entries = await fileService.listDirectory(selected);
+
+      setDirectoryContents({
+        [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
           if (a.isDir !== b.isDir) {
             return a.isDir ? -1 : 1;
           }
@@ -614,39 +691,51 @@ function App() {
       });
 
       setExpandedDirectories(new Set([selected]));
-
       setRootDirectory(selected);
       setOpenFiles([]);
       setActiveFile(null);
       setActiveMenu(null);
       setSearchVisible(false);
 
-      localStorage.setItem("koai-last-workspace", selected);
+      if (!isAndroid) {
+        localStorage.setItem("koai-last-workspace", selected);
+      }
 
       showToast(`${entries.length} items loaded`);
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [hasUnsavedChanges, showToast]);
+  }, [isAndroid, hasUnsavedChanges, showToast]);
+
 
   const openWorkspaceWithoutSaving = useCallback(async () => {
     setConfirmWorkspaceChange(false);
 
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Folder",
-      });
+      let selected: string;
 
-      if (!selected || Array.isArray(selected)) return;
+      if (isAndroid) {
+        const result = await fileService.pickWorkspaceFolder();
 
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path: selected,
-      });
+        if (!result) return;
+
+        selected = result;
+      } else {
+        const result = await open({
+          directory: true,
+          multiple: false,
+          title: "Open Folder",
+        });
+
+        if (!result || Array.isArray(result)) return;
+
+        selected = result;
+      }
+
+      const entries = await fileService.listDirectory(selected);
 
       setDirectoryContents({
-        [selected]: entries.sort((a, b) => {
+        [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
           if (a.isDir !== b.isDir) {
             return a.isDir ? -1 : 1;
           }
@@ -656,43 +745,64 @@ function App() {
       });
 
       setExpandedDirectories(new Set([selected]));
-
       setRootDirectory(selected);
       setOpenFiles([]);
       setActiveFile(null);
+      setActiveMenu(null);
       setSearchVisible(false);
 
-      localStorage.setItem("koai-last-workspace", selected);
+      if (!isAndroid) {
+        localStorage.setItem("koai-last-workspace", selected);
+      }
 
       showToast(`${entries.length} items loaded`);
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [showToast]);
+  }, [isAndroid, showToast]);
 
   const saveAll = useCallback(async () => {
     const unsaved = openFiles.filter((file) => file.dirty);
 
-    if (!unsaved.length) {
+    if (unsaved.length === 0) {
       showToast("Everything is saved");
       return true;
     }
 
+    const savedPaths: string[] = [];
+
     try {
       for (const file of unsaved) {
-        await invoke("write_file", {
-          path: file.path,
-          content: file.content,
-        });
+        await fileService.write(file.path, file.content);
+        savedPaths.push(file.path);
       }
 
+      setOpenFiles((previous) =>
+        previous.map((file) =>
+          savedPaths.includes(file.path)
+            ? {
+              ...file,
+              savedContent: unsaved.find(
+                (item) => item.path === file.path
+              )?.content ?? file.savedContent,
+              dirty: false,
+            }
+            : file
+        )
+      );
+
+      showToast("All files saved");
+      return true;
+    } catch (error) {
       setOpenFiles((previous) =>
         previous.map((file) => {
           const saved = unsaved.find(
             (item) => item.path === file.path
           );
 
-          if (!saved) return file;
+          if (!saved || !savedPaths.includes(file.path)) {
+            return file;
+          }
 
           return {
             ...file,
@@ -702,10 +812,7 @@ function App() {
         })
       );
 
-      showToast("All files saved");
-      return true;
-    } catch (error) {
-      showToast(normalizeError(error));
+      showToast(`Save failed: ${normalizeError(error)}`);
       return false;
     }
   }, [openFiles, showToast]);
@@ -723,10 +830,7 @@ function App() {
       }
 
       try {
-        const content = await invoke<string>("read_file", {
-          path,
-        });
-
+        const content = await fileService.read(path);
         const fileName = name ?? getFileName(path);
 
         const file: OpenFile = {
@@ -762,12 +866,93 @@ function App() {
 
       if (!selected || Array.isArray(selected)) return;
 
+      if (isAndroid) {
+        const content = await readTextFile(selected);
+
+        const decoded = decodeURIComponent(selected);
+
+        const originalName =
+          decoded
+            .split("/")
+            .pop()
+            ?.split(":")
+            .pop()
+            ?.split("?")[0] || "untitled.txt";
+
+        const name = originalName.replace(/[\\/]/g, "_");
+
+        const workspace =
+          rootDirectory ||
+          await invoke<string>("get_android_workspace");
+
+        let destinationName = name;
+        let destination = joinPath(workspace, destinationName);
+
+        try {
+          await invoke("create_entry", {
+            directory: workspace,
+            name: destinationName,
+            isDirectory: false,
+          });
+        } catch {
+          const extensionIndex = name.lastIndexOf(".");
+          const baseName = extensionIndex > 0
+            ? name.slice(0, extensionIndex)
+            : name;
+
+          const extension = extensionIndex > 0
+            ? name.slice(extensionIndex)
+            : "";
+
+          destinationName = `${baseName}-${Date.now()}${extension}`;
+          destination = joinPath(workspace, destinationName);
+
+          await invoke("create_entry", {
+            directory: workspace,
+            name: destinationName,
+            isDirectory: false,
+          });
+        }
+
+        await invoke("write_file", {
+          path: destination,
+          content,
+        });
+
+        if (!rootDirectory) {
+          const entries = await invoke<FileEntry[]>(
+            "list_directory",
+            { path: workspace }
+          );
+
+          setRootDirectory(workspace);
+          setDirectoryContents({
+            [workspace]: entries,
+          });
+          setExpandedDirectories(new Set([workspace]));
+        } else {
+          await loadDirectory(workspace);
+        }
+
+        await openFile(destination, destinationName);
+
+        setActiveMenu(null);
+        showToast("External file imported successfully");
+        return;
+      }
+
       await openFile(selected);
       setActiveMenu(null);
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [openFile, showToast]);
+  }, [
+    isAndroid,
+    rootDirectory,
+    openFile,
+    loadDirectory,
+    showToast,
+  ]);
 
   const createNewFile = useCallback(async () => {
     const name = newFileName.trim();
@@ -779,6 +964,12 @@ function App() {
 
     try {
       if (!rootDirectory) {
+        if (isAndroid) {
+          await openAndroidWorkspace();
+          showToast("Workspace opened. Create your file again.");
+          return;
+        }
+
         const destination = await save({
           title: "Create File",
           defaultPath: name,
@@ -786,35 +977,36 @@ function App() {
 
         if (!destination) return;
 
-        await invoke("write_file", {
-          path: destination,
-          content: "",
-        });
+        await fileService.write(destination, "");
 
         await openFile(destination, getFileName(destination));
       } else {
-        await invoke("create_entry", {
-          directory: rootDirectory,
+        const path = await fileService.create(
+          rootDirectory,
           name,
-          isDirectory: false,
-        });
+          false
+        );
 
-        if (rootDirectory) {
-          await loadDirectory(rootDirectory);
-        }
-
-        const path = joinPath(rootDirectory, name);
-
+        await loadDirectory(rootDirectory);
         await openFile(path, name);
       }
 
       setNewFileName("");
       setNewFileVisible(false);
+
       showToast("File created");
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [newFileName, rootDirectory, openFile, showToast]);
+  }, [
+    isAndroid,
+    rootDirectory,
+    newFileName,
+    openAndroidWorkspace,
+    openFile,
+    loadDirectory,
+    showToast,
+  ]);
 
   const createNewFolder = useCallback(async () => {
     const name = newFolderName.trim();
@@ -825,11 +1017,11 @@ function App() {
     }
 
     try {
-      await invoke("create_entry", {
-        directory: rootDirectory,
+      await fileService.create(
+        rootDirectory,
         name,
-        isDirectory: true,
-      });
+        true
+      );
 
       await loadDirectory(rootDirectory);
 
@@ -840,7 +1032,7 @@ function App() {
     } catch (error) {
       showToast(normalizeError(error));
     }
-  }, [newFolderName, rootDirectory, showToast]);
+  }, [newFolderName, rootDirectory, loadDirectory, showToast]);
 
   const updateFileContent = useCallback(
     (path: string, content: string) => {
@@ -861,23 +1053,28 @@ function App() {
 
   const saveFile = useCallback(
     async (path?: string) => {
+      const targetPath = path ?? activeFile;
+
+      if (!targetPath) return;
+
       const target = openFiles.find(
-        (file) => file.path === (path ?? activeFile)
+        (file) => file.path === targetPath
       );
 
       if (!target) return;
 
       try {
-        await invoke("write_file", {
-          path: target.path,
-          content: target.content,
-        });
+        await fileService.write(
+          target.path,
+          target.content
+        );
 
         setOpenFiles((previous) =>
           previous.map((file) =>
             file.path === target.path
               ? {
                 ...file,
+                savedContent: target.content,
                 dirty: false,
               }
               : file
@@ -886,7 +1083,7 @@ function App() {
 
         showToast(`${target.name} saved`);
       } catch (error) {
-        showToast(normalizeError(error));
+        showToast(`Save failed: ${normalizeError(error)}`);
       }
     },
     [openFiles, activeFile, showToast]
@@ -896,17 +1093,41 @@ function App() {
     if (!currentFile) return;
 
     try {
-      const destination = await save({
-        title: "Save File As",
-        defaultPath: currentFile.name,
-      });
+      let destination: string;
 
-      if (!destination) return;
+      if (isAndroid) {
+        if (!rootDirectory) {
+          showToast("Open a workspace first");
+          return;
+        }
 
-      await invoke("write_file", {
-        path: destination,
-        content: currentFile.content,
-      });
+        const name = window.prompt(
+          "Save as:",
+          currentFile.name
+        );
+
+        if (!name?.trim()) return;
+
+        destination = await fileService.create(
+          rootDirectory,
+          name.trim(),
+          false
+        );
+      } else {
+        const selected = await save({
+          title: "Save File As",
+          defaultPath: currentFile.name,
+        });
+
+        if (!selected) return;
+
+        destination = selected;
+      }
+
+      await fileService.write(
+        destination,
+        currentFile.content
+      );
 
       const name = getFileName(destination);
 
@@ -914,7 +1135,6 @@ function App() {
         previous.map((file) =>
           file.path === currentFile.path
             ? {
-
               ...file,
               path: destination,
               name,
@@ -927,19 +1147,35 @@ function App() {
       );
 
       setActiveFile(destination);
-      showToast("File saved");
+
+      if (rootDirectory) {
+        await loadDirectory(rootDirectory);
+      }
+
+      showToast("File saved successfully");
     } catch (error) {
-      showToast(normalizeError(error));
+      showToast(`Save As failed: ${normalizeError(error)}`);
     }
-  }, [currentFile, showToast]);
+  }, [
+    currentFile,
+    isAndroid,
+    rootDirectory,
+    loadDirectory,
+    showToast,
+  ]);
 
   const deleteEntry = useCallback(
     async (path: string) => {
       try {
-        await invoke("delete_entry", { path });
-        const parentPath = path.replace(/[\\/][^\\/]+$/, "");
+        await fileService.delete(path);
 
-        await loadDirectory(parentPath);
+        const parent = await fileService.parentDirectory(path);
+
+        if (parent) {
+          await loadDirectory(parent);
+        } else if (rootDirectory) {
+          await loadDirectory(rootDirectory);
+        }
 
         setDirectoryContents((previous) => {
           const next = { ...previous };
@@ -947,17 +1183,33 @@ function App() {
           return next;
         });
 
-        const openFileEntry = openFiles.find(
-          (file) => file.path === path
+        const separator = path.includes("\\") ? "\\" : "/";
+        const prefix = path.endsWith(separator)
+          ? path
+          : `${path}${separator}`;
+
+        const deletedFiles = openFiles.filter(
+          (file) =>
+            file.path === path ||
+            file.path.startsWith(prefix)
         );
 
-        if (openFileEntry) {
-          setOpenFiles((previous) =>
-            previous.filter((file) => file.path !== path)
+        if (deletedFiles.length > 0) {
+          const remaining = openFiles.filter(
+            (file) =>
+              file.path !== path &&
+              !file.path.startsWith(prefix)
           );
 
-          if (activeFile === path) {
-            setActiveFile(null);
+          setOpenFiles(remaining);
+
+          if (
+            activeFile &&
+            deletedFiles.some(
+              (file) => file.path === activeFile
+            )
+          ) {
+            setActiveFile(remaining[0]?.path ?? null);
           }
         }
 
@@ -965,8 +1217,8 @@ function App() {
       } catch (error) {
         showToast(normalizeError(error));
       }
-    }, [openFiles, activeFile, showToast, loadDirectory]
-
+    },
+    [openFiles, activeFile, rootDirectory, showToast, loadDirectory]
   );
 
   const renameEntry = useCallback(
@@ -979,35 +1231,49 @@ function App() {
       }
 
       try {
-        const newPath = joinPath(
-          path.replace(/[\\/][^\\/]+$/, ""),
-          name
-        );
+        const newPath = await fileService.rename(path, name);
 
-        await invoke("rename_entry", {
-          path,
-          newName: name,
-        });
+        const parent = await fileService.parentDirectory(newPath);
 
-        const parentPath = path.replace(/[\\/][^\\/]+$/, "");
+        if (parent) {
+          await loadDirectory(parent);
+        } else if (rootDirectory) {
+          await loadDirectory(rootDirectory);
+        }
 
-        await loadDirectory(parentPath);
+        const separator = path.includes("\\") ? "\\" : "/";
+        const prefix = path.endsWith(separator)
+          ? path
+          : `${path}${separator}`;
 
         setOpenFiles((previous) =>
-          previous.map((file) =>
-            file.path === path
-              ? {
+          previous.map((file) => {
+            if (file.path === path) {
+              return {
                 ...file,
                 path: newPath,
                 name,
                 language: getLanguage(name),
-              }
-              : file
-          )
+              };
+            }
+
+            if (file.path.startsWith(prefix)) {
+              return {
+                ...file,
+                path: newPath + file.path.slice(path.length),
+              };
+            }
+
+            return file;
+          })
         );
 
         if (activeFile === path) {
           setActiveFile(newPath);
+        } else if (activeFile?.startsWith(prefix)) {
+          setActiveFile(
+            newPath + activeFile.slice(path.length)
+          );
         }
 
         showToast("Renamed successfully");
@@ -1015,7 +1281,7 @@ function App() {
         showToast(normalizeError(error));
       }
     },
-    [activeFile, showToast, loadDirectory]
+    [activeFile, rootDirectory, showToast, loadDirectory]
   );
 
   const applyAIResponse = useCallback(() => {
@@ -1043,7 +1309,7 @@ function App() {
       content = codeBlockMatch[1];
     }
 
-    updateFileContent(currentFile.path, content.trim());
+    updateFileContent(currentFile.path, content);
 
     showToast("AI response applied to editor");
   }, [
@@ -1068,12 +1334,21 @@ function App() {
 
       if (file.dirty && saveBeforeClose) {
         try {
-          await invoke("write_file", {
-            path: file.path,
-            content: file.content,
-          });
+          await fileService.write(file.path, file.content);
+
+          setOpenFiles((previous) =>
+            previous.map((item) =>
+              item.path === path
+                ? {
+                  ...item,
+                  savedContent: file.content,
+                  dirty: false,
+                }
+                : item
+            )
+          );
         } catch (error) {
-          showToast(normalizeError(error));
+          showToast(`Could not save ${file.name}: ${normalizeError(error)}`);
           return;
         }
       }
@@ -1129,6 +1404,7 @@ function App() {
     setActiveMenu(null);
   };
 
+
   const searchWorkspace = useCallback(async () => {
     if (!searchQuery.trim()) {
       showToast("Enter something to search");
@@ -1146,23 +1422,22 @@ function App() {
 
     const results: SearchResult[] = [];
 
-    const matches = (value: string) => {
-      if (caseSensitive) {
-        return value.includes(searchQuery);
-      }
+    const query = caseSensitive
+      ? searchQuery
+      : searchQuery.toLowerCase();
 
-      return value.toLowerCase().includes(
-        searchQuery.toLowerCase()
-      );
+    const matches = (value: string) => {
+      const text = caseSensitive
+        ? value
+        : value.toLowerCase();
+
+      return text.includes(query);
     };
 
-    const scan = async (directory: string) => {
+    const scan = async (directory: string): Promise<void> => {
       if (searchCancelledRef.current) return;
 
-      const entries = await invoke<FileEntry[]>(
-        "list_directory",
-        { path: directory }
-      );
+      const entries = await fileService.listDirectory(directory);
 
       for (const entry of entries) {
         if (searchCancelledRef.current) return;
@@ -1175,7 +1450,15 @@ function App() {
         }
 
         if (entry.isDir) {
-          await scan(entry.path);
+          try {
+            await scan(entry.path);
+          } catch (error) {
+            console.warn(
+              `Could not scan directory: ${entry.path}`,
+              error
+            );
+          }
+
           continue;
         }
 
@@ -1184,6 +1467,7 @@ function App() {
             results.push({
               file: entry,
               match: entry.name,
+              query: searchQuery,
             });
           }
 
@@ -1191,22 +1475,20 @@ function App() {
         }
 
         try {
-          const content = await invoke<string>(
-            "read_file",
-            { path: entry.path }
-          );
+          const content = await fileService.read(entry.path);
 
-          content.split("\n").forEach((line, index) => {
+          content.split(/\r?\n/).forEach((line, index) => {
             if (matches(line)) {
               results.push({
                 file: entry,
                 match: line.trim(),
                 line: index + 1,
+                query: searchQuery,
               });
             }
           });
         } catch {
-          continue;
+          // Skip files that cannot be read.
         }
       }
     };
@@ -1216,9 +1498,15 @@ function App() {
 
       if (!searchCancelledRef.current) {
         setSearchResults(results);
+
+        if (results.length === 0) {
+          showToast("No matches found");
+        }
       }
     } catch (error) {
-      showToast(normalizeError(error));
+      if (!searchCancelledRef.current) {
+        showToast(normalizeError(error));
+      }
     } finally {
       setSearching(false);
     }
@@ -1246,7 +1534,14 @@ function App() {
   };
 
   const openSearchResult = async (result: SearchResult) => {
+    setSearchNavigation({
+      query: result.query,
+      line: result.line,
+      requestId: Date.now(),
+    });
+
     await openFile(result.file.path, result.file.name);
+
     setSearchVisible(false);
   };
 
@@ -1382,8 +1677,6 @@ function App() {
     }
   };
 
-
-
   const checkForUpdates = async () => {
     setActiveMenu(null);
 
@@ -1391,6 +1684,108 @@ function App() {
 
     try {
       showToast("Checking for updates...");
+
+      const isAndroid = /android/i.test(navigator.userAgent);
+
+      if (isAndroid) {
+        const currentVersion = await getVersion();
+
+        const response = await fetch(
+          `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+          {
+            headers: {
+              Accept: "application/vnd.github+json",
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`GitHub API error: ${response.status}`);
+        }
+
+        const release = await response.json();
+
+        const latestVersion = release.tag_name.replace(/^v/, "");
+
+        if (!semver.valid(latestVersion)) {
+          throw new Error("Invalid release version");
+        }
+
+        if (!semver.gt(latestVersion, currentVersion)) {
+          showToast("koai is already up to date!");
+          return;
+        }
+
+        const apk = release.assets.find(
+          (asset: { name: string }) =>
+            asset.name.toLowerCase().endsWith(".apk")
+        );
+
+        if (!apk) {
+          throw new Error("No APK found in the latest GitHub release");
+        }
+
+        const confirmed = await confirm(
+          `A new version of koai is available!\n\n` +
+          `Current version: ${currentVersion}\n` +
+          `New version: ${latestVersion}\n\n` +
+          `Release notes:\n${release.body || "No release notes available."}\n\n` +
+          `Would you like to download and install it?`,
+          {
+            title: "koai Update Available",
+            kind: "info",
+            okLabel: "Download & Install",
+            cancelLabel: "Cancel",
+          }
+        );
+
+        if (!confirmed) {
+          showToast("Update cancelled");
+          return;
+        }
+
+        const apkPath = await join(
+          await appCacheDir(),
+          `koai-${latestVersion}.apk`
+        );
+
+        showToast("Downloading koai update...");
+
+        await download(
+          apk.browser_download_url,
+          apkPath,
+          ({ progressTotal, total }) => {
+            if (total > 0) {
+              const percentage = Math.floor(
+                (progressTotal / total) * 100
+              );
+
+              showToast(`Downloading koai update: ${percentage}%`);
+            } else {
+              showToast("Downloading koai update...");
+            }
+          }
+        );
+
+        showToast("Download complete. Preparing installer...");
+
+        if (!(await canInstall())) {
+          await requestInstallPermission();
+
+          if (!(await canInstall())) {
+            showToast("Installation permission was not granted.");
+            return;
+          }
+        }
+
+        await install(apkPath);
+
+        showToast("Android installer opened. Approve the update to continue.");
+
+        return;
+      }
+
+      // Windows / Linux / macOS
 
       update = await check();
 
@@ -1815,6 +2210,7 @@ function App() {
             value={currentFile.content}
             language={currentFile.language}
             theme={themeName}
+            searchNavigation={searchNavigation}
             onChange={(content) =>
               updateFileContent(currentFile.path, content)
             }
@@ -2327,7 +2723,7 @@ function App() {
               <div className="dropdown-divider" />
 
               {renderDropdownItem(
-                "Close with save",
+                "Save & Close",
                 () => {
                   if (currentFile) {
                     void closeFile(currentFile.path, true);
@@ -2341,7 +2737,7 @@ function App() {
               )}
 
               {renderDropdownItem(
-                "Close without save",
+                "Don't Save & Close",
                 () => {
                   if (currentFile) {
                     void closeFile(currentFile.path, false);
@@ -2529,7 +2925,7 @@ function App() {
 
                   <div>
                     <span>Platform</span>
-                    <strong>Desktop</strong>
+                    <strong>{isAndroid ? "Android" : "Desktop"}</strong>
                   </div>
 
                   <div>

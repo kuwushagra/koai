@@ -1,3 +1,4 @@
+
 export type Language =
   | "javascript"
   | "typescript"
@@ -20,4 +21,17 @@ export interface FileEntry {
   name: string;
   path: string;
   isDir: boolean;
+}
+
+export interface SearchResult {
+  file: FileEntry;
+  match: string;
+  line?: number;
+  query: string;
+}
+
+export interface SearchNavigation {
+  query: string;
+  line?: number;
+  requestId: number;
 }
