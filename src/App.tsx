@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-//import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { fileService } from "./services/fileService";
 import semver from "semver";
 import { readTextFile } from "@tauri-apps/plugin-fs";
@@ -29,6 +29,8 @@ import React, {
 
 import {
   Bot,
+  GitFork,
+  Globe,
   ChevronDown,
   File,
   FilePlus,
@@ -189,7 +191,7 @@ function App() {
 
     return saved && saved in themes
       ? (saved as ThemeName)
-      : "dark";
+      : "monokai";
   });
 
   const [aiProvider, setAiProvider] = useState<AIProvider | "">(
@@ -234,7 +236,10 @@ function App() {
 
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [assistantVisible, setAssistantVisible] = useState(false);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [assistantEnabled, setAssistantEnabled] = useState(
+    () => localStorage.getItem("koai-assistant-enabled") === "true"
+  );
+  const [sidebarVisible, setSidebarVisible] = useState(false);
 
   const [explorerWidth, setExplorerWidth] = useState(240);
   const [terminalHeight, setTerminalHeight] = useState(220);
@@ -542,6 +547,17 @@ function App() {
   useEffect(() => {
     localStorage.setItem("koai-theme", themeName);
   }, [themeName]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "koai-assistant-enabled",
+      String(assistantEnabled)
+    );
+
+    if (!assistantEnabled) {
+      setAssistantVisible(false);
+    }
+  }, [assistantEnabled]);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -2614,16 +2630,6 @@ function App() {
   const renderTopBar = () => (
     <header className="topbar">
       <div className="topbar-left">
-        <button
-          className="icon-button sidebar-toggle"
-          onClick={() =>
-            setSidebarVisible((previous) => !previous)
-          }
-          title="Toggle explorer"
-        >
-          <PanelLeft size={16} />
-        </button>
-
         <div className="top-menu-item">
           <button
             className="brand-button"
@@ -2823,14 +2829,24 @@ function App() {
         </button>
 
         <button
-          className={`top-toggle ${assistantVisible ? "enabled" : ""
-            }`}
-          onClick={toggleAssistant}
+          className={`top-toggle ${sidebarVisible ? "enabled" : ""}`}
+          onClick={() => setSidebarVisible((previous) => !previous)}
         >
-          <Sparkles size={15} />
-          <span>Assistant</span>
+          <PanelLeft size={15} />
+          <span>Explorer</span>
           <span className="toggle-indicator" />
         </button>
+
+        {assistantEnabled && (
+          <button
+            className={`top-toggle ${assistantVisible ? "enabled" : ""}`}
+            onClick={toggleAssistant}
+          >
+            <Sparkles size={15} />
+            <span>Assistant</span>
+            <span className="toggle-indicator" />
+          </button>
+        )}
       </div>
 
       <div className="topbar-right">
@@ -2934,22 +2950,39 @@ function App() {
                   </div>
                 </div>
 
-                <button
-                  className="settings-action"
-                  onClick={checkForUpdates}
-                >
-                  <RefreshCw size={15} />
-                  Check for updates
-                </button>
+                <div className="modal-actions">
+                  <button
+                    className="settings-action"
+                    onClick={checkForUpdates}
+                  >
+                    <RefreshCw size={15} />
+                    Check for updates
+                  </button>
+
+                  <button
+                    className="settings-action"
+                    onClick={() => {
+                      void openUrl("https://github.com/kuwushagra/koai");
+                    }}
+                  >
+                    <GitFork size={15} />
+                    GitHub
+                  </button>
+                  <button
+                    className="settings-action"
+                    onClick={() => {
+                      void openUrl("https://koaicode.netlify.app");
+                    }}
+                  >
+                    <Globe size={15} />
+                    Website
+                  </button>
+                </div>
               </div>
             )}
 
             {settingsView === "ai" && (
               <div className="settings-page">
-                <h2 className="ai-settings-label">AI Settings</h2>
-                <p className="settings-description">
-                  Configure your AI provider.
-                </p>
                 {!aiUnlocked ? (
                   <div className="ai-unlock-screen">
                     <div className="ai-unlock-icon">
@@ -3005,11 +3038,34 @@ function App() {
                   </div>
                 ) : (
                   <>
+
+                    <h2 className="ai-settings-label">AI Settings</h2>
+                    <p className="settings-description">
+                      Configure your AI provider.
+                    </p>
+
                     <div className="ai-security-status">
                       <span>AI settings unlocked</span>
                       <button onClick={() => void lockAI()}>
                         Lock AI
                       </button>
+                    </div>
+
+                    <label className="settings-label">
+                      Toggle navbar button visibilty
+                    </label>
+
+                    <div className="ai-assistant-enable">
+                      <span>Enable AI Assistant</span>
+
+                      <input
+                        type="checkbox"
+                        className="ai-button-enable"
+                        checked={assistantEnabled}
+                        onChange={(event) =>
+                          setAssistantEnabled(event.target.checked)
+                        }
+                      />
                     </div>
 
                     <label className="settings-label">
