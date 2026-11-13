@@ -39,6 +39,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "semver": "^7.8.6",
+    "tauri-plugin-android-fs-api": "29.0.0",
     "tauri-plugin-android-installer-api": "^0.1.0"
   },
   "devDependencies": {

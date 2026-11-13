@@ -2,24 +2,27 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FileEntry } from "../types/editor";
 
-const isSaf = (path: string) => path.startsWith("content://");
+import {
+  androidFileService,
+  isSafPath,
+} from "./androidFileService";
 
 export const fileService = {
   read(path: string): Promise<string> {
-    return isSaf(path)
-      ? invoke("plugin:saf|readFile", { uri: path })
+    return isSafPath(path)
+      ? androidFileService.read(path)
       : invoke("read_file", { path });
   },
 
   write(path: string, content: string): Promise<void> {
-    return isSaf(path)
-      ? invoke("plugin:saf|writeFile", { uri: path, content })
+    return isSafPath(path)
+      ? androidFileService.write(path, content)
       : invoke("write_file", { path, content });
   },
 
   listDirectory(path: string): Promise<FileEntry[]> {
-    return isSaf(path)
-      ? invoke("plugin:saf|listDirectory", { uri: path })
+    return isSafPath(path)
+      ? androidFileService.listDirectory(path)
       : invoke("list_directory", { path });
   },
 
@@ -28,12 +31,8 @@ export const fileService = {
     name: string,
     isDirectory: boolean,
   ): Promise<string> {
-    return isSaf(directory)
-      ? invoke("plugin:saf|createEntry", {
-          uri: directory,
-          name,
-          isDirectory,
-        })
+    return isSafPath(directory)
+      ? androidFileService.create(directory, name, isDirectory)
       : invoke("create_entry", {
           directory,
           name,
@@ -42,25 +41,20 @@ export const fileService = {
   },
 
   rename(path: string, newName: string): Promise<string> {
-    return isSaf(path)
-      ? invoke("plugin:saf|renameEntry", {
-          uri: path,
-          newName,
-        })
-      : invoke("rename_entry", {
-          path,
-          newName,
-        });
+    return isSafPath(path)
+      ? androidFileService.rename(path, newName)
+      : invoke("rename_entry", { path, newName });
   },
 
   delete(path: string): Promise<void> {
-    return isSaf(path)
-      ? invoke("plugin:saf|deleteEntry", { uri: path })
+    return isSafPath(path)
+      ? androidFileService.delete(path)
       : invoke("delete_entry", { path });
   },
 
   parentDirectory(path: string): Promise<string | null> {
-    if (isSaf(path)) return Promise.resolve(null);
+    if (isSafPath(path)) return Promise.resolve(null);
+
     return invoke("parent_directory", { path });
   },
 };
