@@ -1,4 +1,3 @@
-
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "android-capability",
@@ -6,7 +5,7 @@
   "platforms": ["android"],
   "windows": ["main"],
   "permissions": [
-  "dialog:default",
-  "android-fs:default"
+    "dialog:default",
+    "android-fs:default"
   ]
 }

@@ -6,6 +6,7 @@ import {
   createNewFile,
   createDir,
   renameFile,
+  renameDir,
   removeFile,
   removeDirAll,
   showOpenDirPicker,
@@ -17,11 +18,19 @@ import {
 
 import type { FileEntry } from "../types/editor";
 
+const ANDROID_PREFIX = "android-fs:";
+
 export const encodeSafUri = (uri: FsUri): string =>
-  JSON.stringify(uri);
+  ANDROID_PREFIX + encodeURIComponent(JSON.stringify(uri));
 
 export const decodeSafUri = (value: string): FsUri => {
-  const parsed: unknown = JSON.parse(value);
+  if (!value.startsWith(ANDROID_PREFIX)) {
+    throw new Error("Invalid Android filesystem URI");
+  }
+
+  const parsed: unknown = JSON.parse(
+    decodeURIComponent(value.slice(ANDROID_PREFIX.length))
+  );
 
   if (!isFsUri(parsed)) {
     throw new Error("Invalid Android filesystem URI");
@@ -30,14 +39,10 @@ export const decodeSafUri = (value: string): FsUri => {
   return parsed;
 };
 
-export const isSafPath = (path: string): boolean => {
-  try {
-    decodeSafUri(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
+export const isSafPath = (path: string): boolean =>
+  path.startsWith(ANDROID_PREFIX);
+
+const androidParents = new Map<string, string>();
 
 export const androidFileService = {
   async pickWorkspace(): Promise<string | null> {
@@ -61,11 +66,17 @@ export const androidFileService = {
   async listDirectory(path: string): Promise<FileEntry[]> {
     const entries = await readDir(decodeSafUri(path));
 
-    return entries.map((entry) => ({
-      name: entry.name,
-      path: encodeSafUri(entry.uri),
-      isDir: entry.type === "Dir",
-    }));
+    return entries.map((entry) => {
+      const entryPath = encodeSafUri(entry.uri);
+
+      androidParents.set(entryPath, path);
+
+      return {
+        name: entry.name,
+        path: entryPath,
+        isDir: entry.type === "Dir",
+      };
+    });
   },
 
   async create(
@@ -83,9 +94,22 @@ export const androidFileService = {
   },
 
   async rename(path: string, newName: string): Promise<string> {
-    const uri = await renameFile(decodeSafUri(path), newName);
+    const uri = decodeSafUri(path);
+    const type = await getType(uri);
 
-    return encodeSafUri(uri);
+    const renamed = type.type === "Dir"
+      ? await renameDir(uri, newName)
+      : await renameFile(uri, newName);
+
+    const newPath = encodeSafUri(renamed);
+    const parent = androidParents.get(path);
+
+    if (parent) {
+      androidParents.set(newPath, parent);
+      androidParents.delete(path);
+    }
+
+    return newPath;
   },
 
   async delete(path: string): Promise<void> {
@@ -97,5 +121,9 @@ export const androidFileService = {
     }
 
     return removeFile(uri);
+  },
+
+  parentDirectory(path: string): Promise<string | null> {
+    return Promise.resolve(androidParents.get(path) ?? null);
   },
 };

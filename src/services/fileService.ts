@@ -8,52 +8,77 @@ import {
 } from "./androidFileService";
 
 export const fileService = {
-  read(path: string): Promise<string> {
-    return isSafPath(path)
-      ? androidFileService.read(path)
-      : invoke("read_file", { path });
+  async pickWorkspaceFolder(): Promise<string | null> {
+    return androidFileService.pickWorkspace();
   },
 
-  write(path: string, content: string): Promise<void> {
-    return isSafPath(path)
-      ? androidFileService.write(path, content)
-      : invoke("write_file", { path, content });
+  async read(path: string): Promise<string> {
+    if (isSafPath(path)) {
+      return androidFileService.read(path);
+    }
+
+    return invoke("read_file", { path });
   },
 
-  listDirectory(path: string): Promise<FileEntry[]> {
-    return isSafPath(path)
-      ? androidFileService.listDirectory(path)
-      : invoke("list_directory", { path });
+  async write(path: string, content: string): Promise<void> {
+    if (isSafPath(path)) {
+      return androidFileService.write(path, content);
+    }
+
+    return invoke("write_file", { path, content });
   },
 
-  create(
+  async listDirectory(path: string): Promise<FileEntry[]> {
+    if (isSafPath(path)) {
+      return androidFileService.listDirectory(path);
+    }
+
+    return invoke("list_directory", { path });
+  },
+
+  async create(
     directory: string,
     name: string,
     isDirectory: boolean,
   ): Promise<string> {
-    return isSafPath(directory)
-      ? androidFileService.create(directory, name, isDirectory)
-      : invoke("create_entry", {
-          directory,
-          name,
-          isDirectory,
-        });
+    if (isSafPath(directory)) {
+      return androidFileService.create(
+        directory,
+        name,
+        isDirectory,
+      );
+    }
+
+    return invoke("create_entry", {
+      directory,
+      name,
+      isDirectory,
+    });
   },
 
-  rename(path: string, newName: string): Promise<string> {
-    return isSafPath(path)
-      ? androidFileService.rename(path, newName)
-      : invoke("rename_entry", { path, newName });
+  async rename(path: string, newName: string): Promise<string> {
+    if (isSafPath(path)) {
+      return androidFileService.rename(path, newName);
+    }
+
+    return invoke("rename_entry", {
+      path,
+      newName,
+    });
   },
 
-  delete(path: string): Promise<void> {
-    return isSafPath(path)
-      ? androidFileService.delete(path)
-      : invoke("delete_entry", { path });
+  async delete(path: string): Promise<void> {
+    if (isSafPath(path)) {
+      return androidFileService.delete(path);
+    }
+
+    return invoke("delete_entry", { path });
   },
 
-  parentDirectory(path: string): Promise<string | null> {
-    if (isSafPath(path)) return Promise.resolve(null);
+  async parentDirectory(path: string): Promise<string | null> {
+    if (isSafPath(path)) {
+      return androidFileService.parentDirectory(path);
+    }
 
     return invoke("parent_directory", { path });
   },

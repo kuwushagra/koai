@@ -607,38 +607,36 @@ function App() {
   }, [expandedDirectories, directoryContents, loadDirectory]);
 
 
-  const openAndroidWorkspace = useCallback(async () => {
-    try {
-      const path = await invoke<string>("get_android_workspace");
+const openAndroidWorkspace = useCallback(async () => {
+  try {
+    const path = await invoke<string>("get_android_workspace");
 
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path,
-      });
+    const entries = await fileService.listDirectory(path);
 
-      setDirectoryContents({
-        [path]: entries.sort((a: FileEntry, b: FileEntry) => {
-  if (a.isDir !== b.isDir) {
-    return a.isDir ? -1 : 1;
+    setDirectoryContents({
+      [path]: entries.sort((a: FileEntry, b: FileEntry) => {
+        if (a.isDir !== b.isDir) {
+          return a.isDir ? -1 : 1;
+        }
+
+        return a.name.localeCompare(b.name);
+      }),
+    });
+
+    setExpandedDirectories(new Set([path]));
+    setRootDirectory(path);
+    setOpenFiles([]);
+    setActiveFile(null);
+    setActiveMenu(null);
+    setSearchVisible(false);
+
+    showToast("Android workspace opened");
+  } catch (error) {
+    showToast(normalizeError(error));
   }
+}, [showToast]);
 
-  return a.name.localeCompare(b.name);
-}),
-      });
 
-      setExpandedDirectories(new Set([path]));
-      setRootDirectory(path);
-      setOpenFiles([]);
-      setActiveFile(null);
-      setActiveMenu(null);
-      setSearchVisible(false);
-
-      showToast("Android workspace opened");
-    } catch (error) {
-      showToast(normalizeError(error));
-    }
-  }, [showToast]);
-
-  
 const openWorkspace = useCallback(async () => {
   if (hasUnsavedChanges) {
     setConfirmWorkspaceChange(true);
@@ -649,7 +647,11 @@ const openWorkspace = useCallback(async () => {
     let selected: string;
 
     if (isAndroid) {
-      selected = await invoke<string>("plugin:saf|pickFolder");
+      const result = await fileService.pickWorkspaceFolder();
+
+      if (!result) return;
+
+      selected = result;
     } else {
       const result = await open({
         directory: true,
@@ -666,12 +668,12 @@ const openWorkspace = useCallback(async () => {
 
     setDirectoryContents({
       [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
-  if (a.isDir !== b.isDir) {
-    return a.isDir ? -1 : 1;
-  }
+        if (a.isDir !== b.isDir) {
+          return a.isDir ? -1 : 1;
+        }
 
-  return a.name.localeCompare(b.name);
-}),
+        return a.name.localeCompare(b.name);
+      }),
     });
 
     setExpandedDirectories(new Set([selected]));
@@ -692,7 +694,6 @@ const openWorkspace = useCallback(async () => {
 }, [isAndroid, hasUnsavedChanges, showToast]);
 
 
-  
 const openWorkspaceWithoutSaving = useCallback(async () => {
   setConfirmWorkspaceChange(false);
 
@@ -700,12 +701,11 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
     let selected: string;
 
     if (isAndroid) {
-      const result = await invoke<{
-        uri: string;
-        name: string;
-      }>("plugin:saf|pickFolder");
+      const result = await fileService.pickWorkspaceFolder();
 
-      selected = result.uri;
+      if (!result) return;
+
+      selected = result;
     } else {
       const result = await open({
         directory: true,
@@ -722,12 +722,12 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
 
     setDirectoryContents({
       [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
-  if (a.isDir !== b.isDir) {
-    return a.isDir ? -1 : 1;
-  }
+        if (a.isDir !== b.isDir) {
+          return a.isDir ? -1 : 1;
+        }
 
-  return a.name.localeCompare(b.name);
-}),
+        return a.name.localeCompare(b.name);
+      }),
     });
 
     setExpandedDirectories(new Set([selected]));
@@ -746,7 +746,6 @@ const openWorkspaceWithoutSaving = useCallback(async () => {
     showToast(normalizeError(error));
   }
 }, [isAndroid, showToast]);
-
 
   const saveAll = useCallback(async () => {
     const unsaved = openFiles.filter((file) => file.dirty);
