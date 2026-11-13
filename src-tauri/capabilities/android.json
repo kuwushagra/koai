@@ -7,7 +7,6 @@
   "windows": ["main"],
   "permissions": [
     "dialog:default",
-    "android-installer:default",
-    "upload:default"
+    "android-installer:default"
   ]
 }

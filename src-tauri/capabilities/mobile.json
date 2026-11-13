@@ -5,7 +5,6 @@
   "platforms": ["android", "iOS"],
   "windows": ["main"],
   "permissions": [
-    "dialog:default",
-    "saf:default"
+    "dialog:default"
   ]
 }
