@@ -1732,13 +1732,40 @@ function App() {
           return;
         }
 
+        const architecture = (() => {
+          const ua = navigator.userAgent.toLowerCase();
+
+          if (ua.includes("arm64") || ua.includes("aarch64")) {
+            return "arm64-v8a";
+          }
+
+          if (ua.includes("x86_64") || ua.includes("x86-64")) {
+            return "x86_64";
+          }
+
+          if (ua.includes("armeabi")) {
+            return "armeabi-v7a";
+          }
+
+          return null;
+        })();
+
         const apk = release.assets.find(
-          (asset: { name: string }) =>
-            asset.name.toLowerCase().endsWith(".apk")
+          (asset: { name: string }) => {
+            const name = asset.name.toLowerCase();
+
+            return (
+              name.startsWith(`koai-${latestVersion}-android-`) &&
+              name.endsWith(".apk") &&
+              (!architecture || name.includes(architecture))
+            );
+          }
         );
 
         if (!apk) {
-          throw new Error("No APK found in the latest GitHub release");
+          throw new Error(
+            `No compatible Android APK found for ${architecture || "this device"}`
+          );
         }
 
         const confirmed = await confirm(
