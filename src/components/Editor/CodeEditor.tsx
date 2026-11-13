@@ -1,5 +1,5 @@
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   EditorView,
@@ -73,12 +73,19 @@ const darkHighlightStyle = HighlightStyle.define([
   { tag: tags.link, color: "#3794FF", textDecoration: "underline" },
 ]);
 
+interface SearchNavigation {
+  query: string;
+  line?: number;
+  requestId: number;
+}
+
 interface CodeEditorProps {
   value: string;
   language: string;
   onChange: (value: string) => void;
   readOnly?: boolean;
   theme?: string;
+  searchNavigation?: SearchNavigation | null;
 }
 
 function getLanguageDescription(
@@ -214,10 +221,12 @@ function CodeEditor({
   onChange,
   readOnly = false,
   theme = "dark",
+  searchNavigation = null,
 }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorViewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
+  const [editorReady, setEditorReady] = useState(0);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -263,6 +272,7 @@ function CodeEditor({
     });
 
     editorViewRef.current = view;
+    setEditorReady((previous) => previous + 1);
 
     if (description) {
       description.load()
@@ -306,6 +316,54 @@ function CodeEditor({
       });
     }
   }, [value]);
+
+  useEffect(() => {
+    const view = editorViewRef.current;
+
+    if (!view || !searchNavigation) return;
+
+    const { query, line } = searchNavigation;
+
+    if (!query.trim()) return;
+
+    const doc = view.state.doc;
+
+    let from = -1;
+
+    if (line && line >= 1 && line <= doc.lines) {
+      const targetLine = doc.line(line);
+
+      const index = targetLine.text
+        .toLowerCase()
+        .indexOf(query.toLowerCase());
+
+      if (index !== -1) {
+        from = targetLine.from + index;
+      }
+    }
+
+    if (from === -1) {
+      from = doc.toString()
+        .toLowerCase()
+        .indexOf(query.toLowerCase());
+    }
+
+    if (from === -1) return;
+
+    const to = from + query.length;
+
+    view.dispatch({
+      selection: {
+        anchor: from,
+        head: to,
+      },
+      effects: EditorView.scrollIntoView(from, {
+        y: "center",
+      }),
+    });
+
+    view.focus();
+  }, [searchNavigation, editorReady, value]);
 
   return (
     <div

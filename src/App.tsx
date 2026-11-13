@@ -86,6 +86,7 @@ interface SearchResult {
   file: FileEntry;
   match: string;
   line?: number;
+  query: string;
 }
 
 interface AssistantMessage {
@@ -335,6 +336,13 @@ function App() {
   const [searchMode, setSearchMode] = useState<SearchMode>("files");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+
+  const [searchNavigation, setSearchNavigation] = useState<{
+    query: string;
+    line?: number;
+    requestId: number;
+  } | null>(null);
+
   const [searchVisible, setSearchVisible] = useState(false);
   const [searching, setSearching] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -1459,6 +1467,7 @@ function App() {
             results.push({
               file: entry,
               match: entry.name,
+              query: searchQuery,
             });
           }
 
@@ -1474,6 +1483,7 @@ function App() {
                 file: entry,
                 match: line.trim(),
                 line: index + 1,
+                query: searchQuery,
               });
             }
           });
@@ -1524,7 +1534,14 @@ function App() {
   };
 
   const openSearchResult = async (result: SearchResult) => {
+    setSearchNavigation({
+      query: result.query,
+      line: result.line,
+      requestId: Date.now(),
+    });
+
     await openFile(result.file.path, result.file.name);
+
     setSearchVisible(false);
   };
 
@@ -2193,6 +2210,7 @@ function App() {
             value={currentFile.content}
             language={currentFile.language}
             theme={themeName}
+            searchNavigation={searchNavigation}
             onChange={(content) =>
               updateFileContent(currentFile.path, content)
             }
