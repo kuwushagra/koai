@@ -754,60 +754,60 @@ function App() {
   }, [isAndroid, showToast]);
 
   const saveAll = useCallback(async () => {
-  const unsaved = openFiles.filter((file) => file.dirty);
+    const unsaved = openFiles.filter((file) => file.dirty);
 
-  if (unsaved.length === 0) {
-    showToast("Everything is saved");
-    return true;
-  }
-
-  const savedPaths: string[] = [];
-
-  try {
-    for (const file of unsaved) {
-      await fileService.write(file.path, file.content);
-      savedPaths.push(file.path);
+    if (unsaved.length === 0) {
+      showToast("Everything is saved");
+      return true;
     }
 
-    setOpenFiles((previous) =>
-      previous.map((file) =>
-        savedPaths.includes(file.path)
-          ? {
+    const savedPaths: string[] = [];
+
+    try {
+      for (const file of unsaved) {
+        await fileService.write(file.path, file.content);
+        savedPaths.push(file.path);
+      }
+
+      setOpenFiles((previous) =>
+        previous.map((file) =>
+          savedPaths.includes(file.path)
+            ? {
               ...file,
               savedContent: unsaved.find(
                 (item) => item.path === file.path
               )?.content ?? file.savedContent,
               dirty: false,
             }
-          : file
-      )
-    );
+            : file
+        )
+      );
 
-    showToast("All files saved");
-    return true;
-  } catch (error) {
-    setOpenFiles((previous) =>
-      previous.map((file) => {
-        const saved = unsaved.find(
-          (item) => item.path === file.path
-        );
+      showToast("All files saved");
+      return true;
+    } catch (error) {
+      setOpenFiles((previous) =>
+        previous.map((file) => {
+          const saved = unsaved.find(
+            (item) => item.path === file.path
+          );
 
-        if (!saved || !savedPaths.includes(file.path)) {
-          return file;
-        }
+          if (!saved || !savedPaths.includes(file.path)) {
+            return file;
+          }
 
-        return {
-          ...file,
-          savedContent: saved.content,
-          dirty: file.content !== saved.content,
-        };
-      })
-    );
+          return {
+            ...file,
+            savedContent: saved.content,
+            dirty: file.content !== saved.content,
+          };
+        })
+      );
 
-    showToast(`Save failed: ${normalizeError(error)}`);
-    return false;
-  }
-}, [openFiles, showToast]);
+      showToast(`Save failed: ${normalizeError(error)}`);
+      return false;
+    }
+  }, [openFiles, showToast]);
 
   const openFile = useCallback(
     async (path: string, name?: string) => {
@@ -1044,89 +1044,89 @@ function App() {
   );
 
   const saveFile = useCallback(
-  async (path?: string) => {
-    const targetPath = path ?? activeFile;
+    async (path?: string) => {
+      const targetPath = path ?? activeFile;
 
-    if (!targetPath) return;
+      if (!targetPath) return;
 
-    const target = openFiles.find(
-      (file) => file.path === targetPath
-    );
-
-    if (!target) return;
-
-    try {
-      await fileService.write(
-        target.path,
-        target.content
+      const target = openFiles.find(
+        (file) => file.path === targetPath
       );
 
-      setOpenFiles((previous) =>
-        previous.map((file) =>
-          file.path === target.path
-            ? {
+      if (!target) return;
+
+      try {
+        await fileService.write(
+          target.path,
+          target.content
+        );
+
+        setOpenFiles((previous) =>
+          previous.map((file) =>
+            file.path === target.path
+              ? {
                 ...file,
                 savedContent: target.content,
                 dirty: false,
               }
-            : file
-        )
-      );
+              : file
+          )
+        );
 
-      showToast(`${target.name} saved`);
-    } catch (error) {
-      showToast(`Save failed: ${normalizeError(error)}`);
-    }
-  },
-  [openFiles, activeFile, showToast]
-);
+        showToast(`${target.name} saved`);
+      } catch (error) {
+        showToast(`Save failed: ${normalizeError(error)}`);
+      }
+    },
+    [openFiles, activeFile, showToast]
+  );
 
   const saveAs = useCallback(async () => {
-  if (!currentFile) return;
+    if (!currentFile) return;
 
-  try {
-    let destination: string;
+    try {
+      let destination: string;
 
-    if (isAndroid) {
-      if (!rootDirectory) {
-        showToast("Open a workspace first");
-        return;
+      if (isAndroid) {
+        if (!rootDirectory) {
+          showToast("Open a workspace first");
+          return;
+        }
+
+        const name = window.prompt(
+          "Save as:",
+          currentFile.name
+        );
+
+        if (!name?.trim()) return;
+
+        destination = await fileService.create(
+          rootDirectory,
+          name.trim(),
+          false
+        );
+      } else {
+        const selected = await save({
+          title: "Save File As",
+          defaultPath: currentFile.name,
+        });
+
+        if (!selected) return;
+
+        destination = selected;
       }
 
-      const name = window.prompt(
-        "Save as:",
-        currentFile.name
+      await fileService.write(
+        destination,
+        currentFile.content
       );
 
-      if (!name?.trim()) return;
+      const name = getFileName(destination);
 
-      destination = await fileService.create(
-        rootDirectory,
-        name.trim(),
-        false
-      );
-    } else {
-      const selected = await save({
-        title: "Save File As",
-        defaultPath: currentFile.name,
-      });
-
-      if (!selected) return;
-
-      destination = selected;
-    }
-
-    await fileService.write(
-      destination,
-      currentFile.content
-    );
-
-    const name = getFileName(destination);
-
-    setOpenFiles((previous) =>
-      previous.map((file) =>
-        file.path === currentFile.path
-          ? {
+      setOpenFiles((previous) =>
+        previous.map((file) =>
+          file.path === currentFile.path
+            ? {
               ...file,
               path: destination,
               name,
@@ -1134,27 +1134,27 @@ function App() {
               savedContent: file.content,
               dirty: false,
             }
-          : file
-      )
-    );
+            : file
+        )
+      );
 
-    setActiveFile(destination);
+      setActiveFile(destination);
 
-    if (rootDirectory) {
-      await loadDirectory(rootDirectory);
+      if (rootDirectory) {
+        await loadDirectory(rootDirectory);
+      }
+
+      showToast("File saved successfully");
+    } catch (error) {
+      showToast(`Save As failed: ${normalizeError(error)}`);
     }
-
-    showToast("File saved successfully");
-  } catch (error) {
-    showToast(`Save As failed: ${normalizeError(error)}`);
-  }
-}, [
-  currentFile,
-  isAndroid,
-  rootDirectory,
-  loadDirectory,
-  showToast,
-]);
+  }, [
+    currentFile,
+    isAndroid,
+    rootDirectory,
+    loadDirectory,
+    showToast,
+  ]);
 
   const deleteEntry = useCallback(
     async (path: string) => {
@@ -1301,7 +1301,7 @@ function App() {
       content = codeBlockMatch[1];
     }
 
-    updateFileContent(currentFile.path, content.trim());
+    updateFileContent(currentFile.path, content);
 
     showToast("AI response applied to editor");
   }, [
@@ -1325,25 +1325,25 @@ function App() {
       }
 
       if (file.dirty && saveBeforeClose) {
-  try {
-    await fileService.write(file.path, file.content);
+        try {
+          await fileService.write(file.path, file.content);
 
-    setOpenFiles((previous) =>
-      previous.map((item) =>
-        item.path === path
-          ? {
-              ...item,
-              savedContent: file.content,
-              dirty: false,
-            }
-          : item
-      )
-    );
-  } catch (error) {
-    showToast(`Could not save ${file.name}: ${normalizeError(error)}`);
-    return;
-  }
-}
+          setOpenFiles((previous) =>
+            previous.map((item) =>
+              item.path === path
+                ? {
+                  ...item,
+                  savedContent: file.content,
+                  dirty: false,
+                }
+                : item
+            )
+          );
+        } catch (error) {
+          showToast(`Could not save ${file.name}: ${normalizeError(error)}`);
+          return;
+        }
+      }
 
       const remaining = openFiles.filter(
         (item) => item.path !== path
@@ -1396,6 +1396,7 @@ function App() {
     setActiveMenu(null);
   };
 
+
   const searchWorkspace = useCallback(async () => {
     if (!searchQuery.trim()) {
       showToast("Enter something to search");
@@ -1413,23 +1414,22 @@ function App() {
 
     const results: SearchResult[] = [];
 
-    const matches = (value: string) => {
-      if (caseSensitive) {
-        return value.includes(searchQuery);
-      }
+    const query = caseSensitive
+      ? searchQuery
+      : searchQuery.toLowerCase();
 
-      return value.toLowerCase().includes(
-        searchQuery.toLowerCase()
-      );
+    const matches = (value: string) => {
+      const text = caseSensitive
+        ? value
+        : value.toLowerCase();
+
+      return text.includes(query);
     };
 
-    const scan = async (directory: string) => {
+    const scan = async (directory: string): Promise<void> => {
       if (searchCancelledRef.current) return;
 
-      const entries = await invoke<FileEntry[]>(
-        "list_directory",
-        { path: directory }
-      );
+      const entries = await fileService.listDirectory(directory);
 
       for (const entry of entries) {
         if (searchCancelledRef.current) return;
@@ -1442,7 +1442,15 @@ function App() {
         }
 
         if (entry.isDir) {
-          await scan(entry.path);
+          try {
+            await scan(entry.path);
+          } catch (error) {
+            console.warn(
+              `Could not scan directory: ${entry.path}`,
+              error
+            );
+          }
+
           continue;
         }
 
@@ -1458,12 +1466,9 @@ function App() {
         }
 
         try {
-          const content = await invoke<string>(
-            "read_file",
-            { path: entry.path }
-          );
+          const content = await fileService.read(entry.path);
 
-          content.split("\n").forEach((line, index) => {
+          content.split(/\r?\n/).forEach((line, index) => {
             if (matches(line)) {
               results.push({
                 file: entry,
@@ -1473,7 +1478,7 @@ function App() {
             }
           });
         } catch {
-          continue;
+          // Skip files that cannot be read.
         }
       }
     };
@@ -1483,9 +1488,15 @@ function App() {
 
       if (!searchCancelledRef.current) {
         setSearchResults(results);
+
+        if (results.length === 0) {
+          showToast("No matches found");
+        }
       }
     } catch (error) {
-      showToast(normalizeError(error));
+      if (!searchCancelledRef.current) {
+        showToast(normalizeError(error));
+      }
     } finally {
       setSearching(false);
     }
