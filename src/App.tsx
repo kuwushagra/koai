@@ -1,5 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 //import { openUrl } from "@tauri-apps/plugin-opener";
+import { fileService } from "./services/fileService";
 import semver from "semver";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { download } from "@tauri-apps/plugin-upload";
@@ -191,7 +192,16 @@ function App() {
   });
 
   const [aiProvider, setAiProvider] = useState<AIProvider | "">(
-    () => (localStorage.getItem("koai-provider") as AIProvider) || ""
+    () => {
+  const saved = localStorage.getItem("koai-provider");
+
+  return saved === "openai" ||
+    saved === "anthropic" ||
+    saved === "google" ||
+    saved === "custom"
+    ? saved
+    : "";
+}
   );
 
   const [aiApiKey, setAiApiKey] = useState("");
@@ -552,19 +562,17 @@ function App() {
 
   const loadDirectory = useCallback(async (path: string) => {
     try {
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path,
-      });
+      const entries = await fileService.listDirectory(path);
 
       setDirectoryContents((previous) => ({
         ...previous,
-        [path]: entries.sort((a, b) => {
-          if (a.isDir !== b.isDir) {
-            return a.isDir ? -1 : 1;
-          }
+        [path]: entries.sort((a: FileEntry, b: FileEntry) => {
+  if (a.isDir !== b.isDir) {
+    return a.isDir ? -1 : 1;
+  }
 
-          return a.name.localeCompare(b.name);
-        }),
+  return a.name.localeCompare(b.name);
+}),
       }));
 
       return entries;
@@ -608,13 +616,13 @@ function App() {
       });
 
       setDirectoryContents({
-        [path]: entries.sort((a, b) => {
-          if (a.isDir !== b.isDir) {
-            return a.isDir ? -1 : 1;
-          }
+        [path]: entries.sort((a: FileEntry, b: FileEntry) => {
+  if (a.isDir !== b.isDir) {
+    return a.isDir ? -1 : 1;
+  }
 
-          return a.name.localeCompare(b.name);
-        }),
+  return a.name.localeCompare(b.name);
+}),
       });
 
       setExpandedDirectories(new Set([path]));
@@ -630,84 +638,115 @@ function App() {
     }
   }, [showToast]);
 
-  const openWorkspace = useCallback(async () => {
-    if (hasUnsavedChanges) {
-      setConfirmWorkspaceChange(true);
-      return;
-    }
+  
+const openWorkspace = useCallback(async () => {
+  if (hasUnsavedChanges) {
+    setConfirmWorkspaceChange(true);
+    return;
+  }
 
-    try {
-      const selected = await open({
+  try {
+    let selected: string;
+
+    if (isAndroid) {
+      selected = await invoke<string>("plugin:saf|pickFolder");
+    } else {
+      const result = await open({
         directory: true,
         multiple: false,
         title: "Open Folder",
       });
 
-      if (!selected || Array.isArray(selected)) return;
+      if (!result || Array.isArray(result)) return;
 
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path: selected,
-      });
-
-      setDirectoryContents({
-        [selected]: entries.sort((a, b) => {
-          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        }),
-      });
-
-      setExpandedDirectories(new Set([selected]));
-      setRootDirectory(selected);
-      setOpenFiles([]);
-      setActiveFile(null);
-      setActiveMenu(null);
-      setSearchVisible(false);
-
-      localStorage.setItem("koai-last-workspace", selected);
-
-      showToast(`${entries.length} items loaded`);
-    } catch (error) {
-      showToast(normalizeError(error));
+      selected = result;
     }
-  }, [hasUnsavedChanges, showToast]);
 
-  const openWorkspaceWithoutSaving = useCallback(async () => {
-    setConfirmWorkspaceChange(false);
+    const entries = await fileService.listDirectory(selected);
 
-    try {
-      const selected = await open({
+    setDirectoryContents({
+      [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
+  if (a.isDir !== b.isDir) {
+    return a.isDir ? -1 : 1;
+  }
+
+  return a.name.localeCompare(b.name);
+}),
+    });
+
+    setExpandedDirectories(new Set([selected]));
+    setRootDirectory(selected);
+    setOpenFiles([]);
+    setActiveFile(null);
+    setActiveMenu(null);
+    setSearchVisible(false);
+
+    if (!isAndroid) {
+      localStorage.setItem("koai-last-workspace", selected);
+    }
+
+    showToast(`${entries.length} items loaded`);
+  } catch (error) {
+    showToast(normalizeError(error));
+  }
+}, [isAndroid, hasUnsavedChanges, showToast]);
+
+
+  
+const openWorkspaceWithoutSaving = useCallback(async () => {
+  setConfirmWorkspaceChange(false);
+
+  try {
+    let selected: string;
+
+    if (isAndroid) {
+      const result = await invoke<{
+        uri: string;
+        name: string;
+      }>("plugin:saf|pickFolder");
+
+      selected = result.uri;
+    } else {
+      const result = await open({
         directory: true,
         multiple: false,
         title: "Open Folder",
       });
 
-      if (!selected || Array.isArray(selected)) return;
+      if (!result || Array.isArray(result)) return;
 
-      const entries = await invoke<FileEntry[]>("list_directory", {
-        path: selected,
-      });
-
-      setDirectoryContents({
-        [selected]: entries.sort((a, b) => {
-          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        }),
-      });
-
-      setExpandedDirectories(new Set([selected]));
-      setRootDirectory(selected);
-      setOpenFiles([]);
-      setActiveFile(null);
-      setActiveMenu(null);
-      setSearchVisible(false);
-
-      localStorage.setItem("koai-last-workspace", selected);
-
-      showToast(`${entries.length} items loaded`);
-    } catch (error) {
-      showToast(normalizeError(error));
+      selected = result;
     }
-  }, [showToast]);
+
+    const entries = await fileService.listDirectory(selected);
+
+    setDirectoryContents({
+      [selected]: entries.sort((a: FileEntry, b: FileEntry) => {
+  if (a.isDir !== b.isDir) {
+    return a.isDir ? -1 : 1;
+  }
+
+  return a.name.localeCompare(b.name);
+}),
+    });
+
+    setExpandedDirectories(new Set([selected]));
+    setRootDirectory(selected);
+    setOpenFiles([]);
+    setActiveFile(null);
+    setActiveMenu(null);
+    setSearchVisible(false);
+
+    if (!isAndroid) {
+      localStorage.setItem("koai-last-workspace", selected);
+    }
+
+    showToast(`${entries.length} items loaded`);
+  } catch (error) {
+    showToast(normalizeError(error));
+  }
+}, [isAndroid, showToast]);
+
 
   const saveAll = useCallback(async () => {
     const unsaved = openFiles.filter((file) => file.dirty);
@@ -719,10 +758,7 @@ function App() {
 
     try {
       for (const file of unsaved) {
-        await invoke("write_file", {
-          path: file.path,
-          content: file.content,
-        });
+        await fileService.write(file.path, file.content);
       }
 
       setOpenFiles((previous) =>
@@ -762,9 +798,7 @@ function App() {
       }
 
       try {
-        const content = await invoke<string>("read_file", {
-          path,
-        });
+        const content = await fileService.read(path);
 
         const fileName = name ?? getFileName(path);
 
@@ -802,79 +836,79 @@ function App() {
       if (!selected || Array.isArray(selected)) return;
 
       if (isAndroid) {
-        const content = await readTextFile(selected);
+  const content = await readTextFile(selected);
 
-        const decoded = decodeURIComponent(selected);
+  const decoded = decodeURIComponent(selected);
 
-        const originalName =
-          decoded
-            .split("/")
-            .pop()
-            ?.split(":")
-            .pop()
-            ?.split("?")[0] || "untitled.txt";
+  const originalName =
+    decoded
+      .split("/")
+      .pop()
+      ?.split(":")
+      .pop()
+      ?.split("?")[0] || "untitled.txt";
 
-        const name = originalName.replace(/[\\/]/g, "_");
+  const name = originalName.replace(/[\\/]/g, "_");
 
-        const workspace = rootDirectory ||
-          await invoke<string>("get_android_workspace");
+  const workspace =
+    rootDirectory ||
+    await invoke<string>("get_android_workspace");
 
-        let destinationName = name;
+  let destinationName = name;
+  let destination = joinPath(workspace, destinationName);
 
-        try {
-          await invoke("create_entry", {
-            directory: workspace,
-            name: destinationName,
-            isDirectory: false,
-          });
-        } catch {
-          const extensionIndex = name.lastIndexOf(".");
-          const baseName = extensionIndex > 0
-            ? name.slice(0, extensionIndex)
-            : name;
+  try {
+    await invoke("create_entry", {
+      directory: workspace,
+      name: destinationName,
+      isDirectory: false,
+    });
+  } catch {
+    const extensionIndex = name.lastIndexOf(".");
+    const baseName = extensionIndex > 0
+      ? name.slice(0, extensionIndex)
+      : name;
 
-          const extension = extensionIndex > 0
-            ? name.slice(extensionIndex)
-            : "";
+    const extension = extensionIndex > 0
+      ? name.slice(extensionIndex)
+      : "";
 
-          destinationName =
-            `${baseName}-${Date.now()}${extension}`;
+    destinationName = `${baseName}-${Date.now()}${extension}`;
+    destination = joinPath(workspace, destinationName);
 
-          await invoke("create_entry", {
-            directory: workspace,
-            name: destinationName,
-            isDirectory: false,
-          });
-        }
+    await invoke("create_entry", {
+      directory: workspace,
+      name: destinationName,
+      isDirectory: false,
+    });
+  }
 
-        const destination = joinPath(workspace, destinationName);
+  await invoke("write_file", {
+    path: destination,
+    content,
+  });
 
-        await invoke("write_file", {
-          path: destination,
-          content,
-        });
+  if (!rootDirectory) {
+    const entries = await invoke<FileEntry[]>(
+      "list_directory",
+      { path: workspace }
+    );
 
-        if (!rootDirectory) {
-          const entries = await invoke<FileEntry[]>(
-            "list_directory",
-            { path: workspace }
-          );
+    setRootDirectory(workspace);
+    setDirectoryContents({
+      [workspace]: entries,
+    });
+    setExpandedDirectories(new Set([workspace]));
+  } else {
+    await loadDirectory(workspace);
+  }
 
-          setRootDirectory(workspace);
-          setDirectoryContents({
-            [workspace]: entries,
-          });
-          setExpandedDirectories(new Set([workspace]));
-        } else {
-          await loadDirectory(workspace);
-        }
+  await openFile(destination, destinationName);
 
-        await openFile(destination, destinationName);
-
-        setActiveMenu(null);
-        showToast("External file imported successfully");
-        return;
-      }
+  setActiveMenu(null);
+  showToast("External file imported successfully");
+  return;
+}
 
       await openFile(selected);
       setActiveMenu(null);
@@ -994,18 +1028,16 @@ function App() {
       if (!target) return;
 
       try {
-        await invoke("write_file", {
-          path: target.path,
-          content: target.content,
-        });
+        await fileService.write(target.path, target.content);
 
         setOpenFiles((previous) =>
           previous.map((file) =>
             file.path === target.path
               ? {
-                ...file,
-                dirty: false,
-              }
+  ...file,
+  savedContent: target.content,
+  dirty: file.content !== target.content,
+}
               : file
           )
         );
@@ -1062,10 +1094,11 @@ function App() {
   const deleteEntry = useCallback(
     async (path: string) => {
       try {
-        await invoke("delete_entry", { path });
-        const parentPath = path.replace(/[\\/][^\\/]+$/, "");
+        await fileService.delete(path);
 
-        await loadDirectory(parentPath);
+if (rootDirectory) {
+  await loadDirectory(rootDirectory);
+}
 
         setDirectoryContents((previous) => {
           const next = { ...previous };
@@ -1073,25 +1106,39 @@ function App() {
           return next;
         });
 
-        const openFileEntry = openFiles.find(
-          (file) => file.path === path
-        );
+        const separator = path.includes("\\") ? "\\" : "/";
+const prefix = path.endsWith(separator)
+  ? path
+  : `${path}${separator}`;
 
-        if (openFileEntry) {
-          setOpenFiles((previous) =>
-            previous.filter((file) => file.path !== path)
-          );
+const deletedFiles = openFiles.filter(
+  (file) =>
+    file.path === path ||
+    file.path.startsWith(prefix)
+);
 
-          if (activeFile === path) {
-            setActiveFile(null);
-          }
-        }
+if (deletedFiles.length > 0) {
+  const remaining = openFiles.filter(
+    (file) =>
+      file.path !== path &&
+      !file.path.startsWith(prefix)
+  );
+
+  setOpenFiles(remaining);
+
+  if (
+    activeFile &&
+    deletedFiles.some((file) => file.path === activeFile)
+  ) {
+    setActiveFile(remaining[0]?.path ?? null);
+  }
+}
 
         showToast("Item deleted");
       } catch (error) {
         showToast(normalizeError(error));
       }
-    }, [openFiles, activeFile, showToast, loadDirectory]
+    }, [openFiles, activeFile, rootDirectory, showToast, loadDirectory]
 
   );
 
@@ -1105,15 +1152,7 @@ function App() {
       }
 
       try {
-        const newPath = joinPath(
-          path.replace(/[\\/][^\\/]+$/, ""),
-          name
-        );
-
-        await invoke("rename_entry", {
-          path,
-          newName: name,
-        });
+        const newPath = await fileService.rename(path, name);
 
         const parentPath = path.replace(/[\\/][^\\/]+$/, "");
 
@@ -1194,10 +1233,7 @@ function App() {
 
       if (file.dirty && saveBeforeClose) {
         try {
-          await invoke("write_file", {
-            path: file.path,
-            content: file.content,
-          });
+          await fileService.write(file.path, file.content);
         } catch (error) {
           showToast(normalizeError(error));
           return;
@@ -2754,9 +2790,9 @@ function App() {
                   </div>
 
                   <div>
-                    <span>Platform</span>
-                    <strong>Desktop</strong>
-                  </div>
+  <span>Platform</span>
+  <strong>{isAndroid ? "Android" : "Desktop"}</strong>
+</div>
 
                   <div>
                     <span>Developed by</span>
