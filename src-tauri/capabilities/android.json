@@ -6,7 +6,7 @@
   "platforms": ["android"],
   "windows": ["main"],
   "permissions": [
-    "dialog:default",
-    "android-installer:default"
+  "dialog:default",
+  "android-fs:default"
   ]
 }
