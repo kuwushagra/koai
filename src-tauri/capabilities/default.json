@@ -2,13 +2,27 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default permissions for koai",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
+    "opener:allow-open-url",
     "core:default",
     "dialog:default",
     "fs:default",
     "os:default",
     "upload:default",
-    "android-installer:default"
+    "android-installer:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://github.com/kuwushagra/koai"
+        },
+        {
+          "url": "https://koaicode.netlify.app"
+        }
+      ]
+    }
   ]
 }

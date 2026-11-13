@@ -15,6 +15,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init());
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -24,7 +25,7 @@ pub fn run() {
 
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_android_fs::init());
-    
+
     let builder = builder
         .plugin(tauri_plugin_upload::init())
         .plugin(tauri_plugin_android_installer::init());
