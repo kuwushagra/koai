@@ -754,41 +754,60 @@ function App() {
   }, [isAndroid, showToast]);
 
   const saveAll = useCallback(async () => {
-    const unsaved = openFiles.filter((file) => file.dirty);
+  const unsaved = openFiles.filter((file) => file.dirty);
 
-    if (!unsaved.length) {
-      showToast("Everything is saved");
-      return true;
+  if (unsaved.length === 0) {
+    showToast("Everything is saved");
+    return true;
+  }
+
+  const savedPaths: string[] = [];
+
+  try {
+    for (const file of unsaved) {
+      await fileService.write(file.path, file.content);
+      savedPaths.push(file.path);
     }
 
-    try {
-      for (const file of unsaved) {
-        await fileService.write(file.path, file.content);
-      }
+    setOpenFiles((previous) =>
+      previous.map((file) =>
+        savedPaths.includes(file.path)
+          ? {
+              ...file,
+              savedContent: unsaved.find(
+                (item) => item.path === file.path
+              )?.content ?? file.savedContent,
+              dirty: false,
+            }
+          : file
+      )
+    );
 
-      setOpenFiles((previous) =>
-        previous.map((file) => {
-          const saved = unsaved.find(
-            (item) => item.path === file.path
-          );
+    showToast("All files saved");
+    return true;
+  } catch (error) {
+    setOpenFiles((previous) =>
+      previous.map((file) => {
+        const saved = unsaved.find(
+          (item) => item.path === file.path
+        );
 
-          if (!saved) return file;
+        if (!saved || !savedPaths.includes(file.path)) {
+          return file;
+        }
 
-          return {
-            ...file,
-            savedContent: saved.content,
-            dirty: file.content !== saved.content,
-          };
-        })
-      );
+        return {
+          ...file,
+          savedContent: saved.content,
+          dirty: file.content !== saved.content,
+        };
+      })
+    );
 
-      showToast("All files saved");
-      return true;
-    } catch (error) {
-      showToast(normalizeError(error));
-      return false;
-    }
-  }, [openFiles, showToast]);
+    showToast(`Save failed: ${normalizeError(error)}`);
+    return false;
+  }
+}, [openFiles, showToast]);
 
   const openFile = useCallback(
     async (path: string, name?: string) => {
@@ -1025,85 +1044,89 @@ function App() {
   );
 
   const saveFile = useCallback(
-    async (path?: string) => {
-      const target = openFiles.find(
-        (file) => file.path === (path ?? activeFile)
-      );
+  async (path?: string) => {
+    const targetPath = path ?? activeFile;
 
-      if (!target) return;
+    if (!targetPath) return;
 
-      try {
-        await fileService.write(
-          target.path,
-          target.content
-        );
+    const target = openFiles.find(
+      (file) => file.path === targetPath
+    );
 
-        setOpenFiles((previous) =>
-          previous.map((file) =>
-            file.path === target.path
-              ? {
-                ...file,
-                savedContent: target.content,
-                dirty: file.content !== target.content,
-              }
-              : file
-          )
-        );
-
-        showToast(`${target.name} saved`);
-      } catch (error) {
-        showToast(normalizeError(error));
-      }
-    },
-    [openFiles, activeFile, showToast]
-  );
-
-  const saveAs = useCallback(async () => {
-    if (!currentFile) return;
+    if (!target) return;
 
     try {
-      let destination: string;
-
-      if (isAndroid) {
-        if (!rootDirectory) {
-          showToast("Open a workspace first");
-          return;
-        }
-
-        const name = window.prompt(
-          "Enter new file name:",
-          currentFile.name
-        );
-
-        if (!name?.trim()) return;
-
-        destination = await fileService.create(
-          rootDirectory,
-          name.trim(),
-          false
-        );
-      } else {
-        const selected = await save({
-          title: "Save File As",
-          defaultPath: currentFile.name,
-        });
-
-        if (!selected) return;
-
-        destination = selected;
-      }
-
       await fileService.write(
-        destination,
-        currentFile.content
+        target.path,
+        target.content
       );
-
-      const name = getFileName(destination);
 
       setOpenFiles((previous) =>
         previous.map((file) =>
-          file.path === currentFile.path
+          file.path === target.path
             ? {
+                ...file,
+                savedContent: target.content,
+                dirty: false,
+              }
+            : file
+        )
+      );
+
+      showToast(`${target.name} saved`);
+    } catch (error) {
+      showToast(`Save failed: ${normalizeError(error)}`);
+    }
+  },
+  [openFiles, activeFile, showToast]
+);
+
+  const saveAs = useCallback(async () => {
+  if (!currentFile) return;
+
+  try {
+    let destination: string;
+
+    if (isAndroid) {
+      if (!rootDirectory) {
+        showToast("Open a workspace first");
+        return;
+      }
+
+      const name = window.prompt(
+        "Save as:",
+        currentFile.name
+      );
+
+      if (!name?.trim()) return;
+
+      destination = await fileService.create(
+        rootDirectory,
+        name.trim(),
+        false
+      );
+    } else {
+      const selected = await save({
+        title: "Save File As",
+        defaultPath: currentFile.name,
+      });
+
+      if (!selected) return;
+
+      destination = selected;
+    }
+
+    await fileService.write(
+      destination,
+      currentFile.content
+    );
+
+    const name = getFileName(destination);
+
+    setOpenFiles((previous) =>
+      previous.map((file) =>
+        file.path === currentFile.path
+          ? {
               ...file,
               path: destination,
               name,
@@ -1111,27 +1134,27 @@ function App() {
               savedContent: file.content,
               dirty: false,
             }
-            : file
-        )
-      );
+          : file
+      )
+    );
 
-      setActiveFile(destination);
+    setActiveFile(destination);
 
-      if (rootDirectory) {
-        await loadDirectory(rootDirectory);
-      }
-
-      showToast("File saved");
-    } catch (error) {
-      showToast(normalizeError(error));
+    if (rootDirectory) {
+      await loadDirectory(rootDirectory);
     }
-  }, [
-    currentFile,
-    isAndroid,
-    rootDirectory,
-    loadDirectory,
-    showToast,
-  ]);
+
+    showToast("File saved successfully");
+  } catch (error) {
+    showToast(`Save As failed: ${normalizeError(error)}`);
+  }
+}, [
+  currentFile,
+  isAndroid,
+  rootDirectory,
+  loadDirectory,
+  showToast,
+]);
 
   const deleteEntry = useCallback(
     async (path: string) => {
@@ -1302,16 +1325,25 @@ function App() {
       }
 
       if (file.dirty && saveBeforeClose) {
-        try {
-          await fileService.write(
-            file.path,
-            file.content
-          );
-        } catch (error) {
-          showToast(normalizeError(error));
-          return;
-        }
-      }
+  try {
+    await fileService.write(file.path, file.content);
+
+    setOpenFiles((previous) =>
+      previous.map((item) =>
+        item.path === path
+          ? {
+              ...item,
+              savedContent: file.content,
+              dirty: false,
+            }
+          : item
+      )
+    );
+  } catch (error) {
+    showToast(`Could not save ${file.name}: ${normalizeError(error)}`);
+    return;
+  }
+}
 
       const remaining = openFiles.filter(
         (item) => item.path !== path
